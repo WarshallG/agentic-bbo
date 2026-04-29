@@ -31,6 +31,30 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESULTS_ROOT = PROJECT_ROOT / "runs" / "demo"
 
 
+def _sanitize_path_segment(value: str) -> str:
+    """Make a user-provided token safe as one filesystem directory name."""
+    fragments: list[str] = []
+    for ch in value.strip():
+        if ch.isascii() and (ch.isalnum() or ch in "-_."):
+            fragments.append(ch)
+        else:
+            fragments.append("_")
+    cleaned = "".join(fragments).strip("._-")
+    return cleaned if cleaned else "unknown"
+
+
+def _runs_subdirectory_name(
+    algorithm_name: str,
+    *,
+    skydiscover_search_type: str,
+) -> str:
+    """Result root path segment: plain algorithm id, except skydiscover (includes search type)."""
+    if algorithm_name not in {"skydiscover_interleaved", "skydiscover_meta"}:
+        return algorithm_name
+    safe_search = _sanitize_path_segment(skydiscover_search_type)
+    return f"{algorithm_name}_{safe_search}"
+
+
 def _resolve_optional_env(*names: str) -> str | None:
     for name in names:
         if not name:
@@ -198,6 +222,13 @@ def run_single_experiment(
     agent_api_base: str | None = None,
     agent_api_key_env: str | None = None,
     agent_initial_random: int = 0,
+    skydiscover_interleave_every: int = 5,
+    skydiscover_round_iterations: int = 3,
+    skydiscover_config_path: str | Path | None = None,
+    skydiscover_runner: bool = False,
+    skydiscover_search_type: str = "topk",
+    skydiscover_model: str | None = None,
+    skydiscover_max_meta_history: int = 32,
 ) -> dict[str, Any]:
     resolved_task_kwargs = dict(task_kwargs or {})
     if surrogate_path is not None:
@@ -212,7 +243,11 @@ def run_single_experiment(
         **resolved_task_kwargs,
     )
     _require_algorithm_support(task, algorithm_name)
-    run_dir = _allocate_run_dir(results_root / task_name / algorithm_name / f"seed_{seed}", resume=resume)
+    run_segments = _runs_subdirectory_name(
+        algorithm_name,
+        skydiscover_search_type=skydiscover_search_type,
+    )
+    run_dir = _allocate_run_dir(results_root / task_name / run_segments / f"seed_{seed}", resume=resume)
     results_jsonl = run_dir / "trials.jsonl"
 
     algorithm_kwargs: dict[str, Any] = {}
@@ -289,6 +324,17 @@ def run_single_experiment(
             opro_openai_timeout_seconds=opro_openai_timeout_seconds,
             opro_openai_max_retries=opro_openai_max_retries,
         )
+    elif algorithm_name in {"skydiscover_interleaved", "skydiscover_meta"}:
+        algorithm_kwargs = {
+            "run_dir": run_dir,
+            "interleave_every": skydiscover_interleave_every,
+            "skydiscover_round_iterations": skydiscover_round_iterations,
+            "skydiscover_config_path": skydiscover_config_path,
+            "skydiscover_runner_enabled": skydiscover_runner,
+            "skydiscover_search_type": skydiscover_search_type,
+            "skydiscover_model": skydiscover_model,
+            "max_meta_history": skydiscover_max_meta_history,
+        }
     algorithm = create_algorithm(algorithm_name, **algorithm_kwargs)
 
     logger = JsonlMetricLogger(results_jsonl)
@@ -327,6 +373,9 @@ def run_single_experiment(
         "internal_artifacts": getattr(algorithm, "artifact_paths", {}),
         "role_model_routes": getattr(algorithm, "routing_table", {}),
     }
+    if algorithm_name in {"skydiscover_interleaved", "skydiscover_meta"}:
+        serializable_summary["skydiscover_search_type"] = skydiscover_search_type
+        serializable_summary["runs_subdirectory"] = run_segments
     if generate_plots:
         plot_paths = generate_visualizations(
             task=task,
@@ -650,6 +699,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-api-base", default=None)
     parser.add_argument("--agent-api-key-env", default=None)
     parser.add_argument("--agent-initial-random", type=int, default=0)
+    parser.add_argument("--skydiscover-interleave-every", type=int, default=5)
+    parser.add_argument("--skydiscover-round-iterations", type=int, default=3)
+    parser.add_argument("--skydiscover-config", type=Path, default=None)
+    parser.add_argument(
+        "--skydiscover-runner",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Run real SkyDiscover Runner (needs `uv sync --extra skydiscover` and LLM credentials).",
+    )
+    parser.add_argument("--skydiscover-search-type", default="topk")
+    parser.add_argument("--skydiscover-model", default=None)
+    parser.add_argument("--skydiscover-max-meta-history", type=int, default=32)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS_ROOT)
     parser.add_argument(
@@ -742,6 +803,13 @@ def main(argv: list[str] | None = None) -> int:
             agent_api_base=args.agent_api_base,
             agent_api_key_env=args.agent_api_key_env,
             agent_initial_random=args.agent_initial_random,
+            skydiscover_interleave_every=args.skydiscover_interleave_every,
+            skydiscover_round_iterations=args.skydiscover_round_iterations,
+            skydiscover_config_path=args.skydiscover_config,
+            skydiscover_runner=args.skydiscover_runner,
+            skydiscover_search_type=args.skydiscover_search_type,
+            skydiscover_model=args.skydiscover_model,
+            skydiscover_max_meta_history=args.skydiscover_max_meta_history,
         )
 
     print(json.dumps(summary, indent=2, sort_keys=True))

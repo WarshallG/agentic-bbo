@@ -66,6 +66,12 @@ general-agent = [
 interop = [
   "ConfigSpace>=1.2.0",
 ]
+skydiscover = [
+  "skydiscover",
+]
+
+[tool.uv.sources]
+skydiscover = { path = "bbo/algorithms/llm_based/skydiscover", editable = true }
 
 [tool.uv]
 conflicts = [
