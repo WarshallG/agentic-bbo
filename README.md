@@ -249,9 +249,18 @@ Current public names:
 - `claude_code` / `agentic_claude_code`
 - `agentic_openai_compatible`
 
-The runtime writes `agent_workspace/`, `agent_state/`, `agent_memory/`, `agent_tool_calls.jsonl`, and `agent_web_sources.jsonl` under each run directory.
+The runtime writes `agent_workspace/`, `agent_state/`, `agent_memory/`, `agent_tool_calls.jsonl`, `agent_web_sources.jsonl`, `llm_logs/`, and `agent_optimization_trace.jsonl` under each run directory.
 Tools include task context, search-space inspection, trial history, incumbent lookup, candidate validation, sampling, history analysis, append-only memory, code execution, web search, and URL fetch.
-The code tool is designed for SandboxFusion's `/run_code` API; start a SandboxFusion server separately and pass `--sandbox-fusion-base-url` or set `SANDBOX_FUSION_BASE_URL`.
+For shell/file agents such as Nanobot and Claude Code, the workspace exposes a Python API in `agent_workspace/bbo_tools.py`; agents should prefer `from bbo_tools import BBO` and write small scripts instead of calling the lower-level `bbo_tool.py` CLI directly. The workspace also includes `examples/gp_expected_improvement.py`, an editable GP/LCB example that reads history, fits a `scikit-learn` GP when possible, validates candidates, and prints the strict candidates JSON schema.
+
+The code tool is designed for SandboxFusion's `/run_code` API; BBO does not provide a custom local security sandbox. Start a SandboxFusion server separately and pass `--sandbox-fusion-base-url` or set `SANDBOX_FUSION_BASE_URL`. Recommended SandboxFusion Python packages for BBO agents are `numpy`, `scipy`, `scikit-learn`, `pandas`, and `joblib`. Check a server before a real run with:
+
+```bash
+uv run python -m bbo.algorithms.agentic.sandbox_healthcheck \
+  --base-url "$SANDBOX_FUSION_BASE_URL"
+```
+
+If an OpenAI-compatible endpoint returns model reasoning in `message.reasoning_content` (for example the proxy in `run.sh` with `--agent-model deepseek-reasoner`), Nanobot runs write `reasoning_traces/` and `agent_reasoning_metadata.jsonl`. Use `--agent-require-visible-cot` to fail a call when visible reasoning was not captured. The benchmark parser still consumes only the final strict JSON candidates payload.
 
 ```bash
 uv run python -m bbo.run \
