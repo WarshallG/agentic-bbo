@@ -107,6 +107,7 @@ class GeneralAgentConfig:
     web_search_provider: str = "disabled"
     web_search_api_key_env: str | None = None
     allow_fallback: bool = True
+    require_visible_cot: bool = False
 
 
 class GeneralAgentBBOAlgorithm(Algorithm):
@@ -138,6 +139,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
         web_search_provider: str = "disabled",
         web_search_api_key_env: str | None = None,
         allow_fallback: bool = True,
+        require_visible_cot: bool = False,
     ) -> None:
         normalized = normalize_agent_framework(framework)
         if timeout_seconds <= 0:
@@ -179,6 +181,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             web_search_provider=web_search_provider,
             web_search_api_key_env=web_search_api_key_env,
             allow_fallback=bool(allow_fallback),
+            require_visible_cot=bool(require_visible_cot),
         )
         self._engine = engine or create_general_agent_engine(normalized)
         self._task_spec: TaskSpec | None = None
@@ -228,10 +231,12 @@ class GeneralAgentBBOAlgorithm(Algorithm):
         self._workspace_dir = self._run_dir / "agent_workspace"
         self._state_dir = self._run_dir / "agent_state"
         self._memory_dir = self._run_dir / "agent_memory"
+        reasoning_dir = self._run_dir / "reasoning_traces"
         log_dir = self._run_dir / "llm_logs"
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
         self._state_dir.mkdir(parents=True, exist_ok=True)
         self._memory_dir.mkdir(parents=True, exist_ok=True)
+        reasoning_dir.mkdir(parents=True, exist_ok=True)
         log_dir.mkdir(parents=True, exist_ok=True)
         self._manifest = load_BBO_manifest(task_spec)
         self._memory_store = (
@@ -252,6 +257,8 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 "claude_config": self._claude_config(),
                 "openai_compatible_config": self._openai_compatible_config(),
                 "log_dir": log_dir,
+                "reasoning_dir": reasoning_dir,
+                "reasoning_metadata_path": self._agent_reasoning_metadata_path,
             },
         )
         self._artifacts = {
@@ -277,6 +284,8 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             "agent_sources_jsonl": str(self._agent_sources_path),
             "agent_memory_jsonl": str(self._agent_memory_path),
             "agent_memory_summary_json": str(self._agent_memory_summary_path),
+            "agent_reasoning_traces_dir": str(reasoning_dir),
+            "agent_reasoning_metadata_jsonl": str(self._agent_reasoning_metadata_path),
         }
         for path in (
             self._agent_calls_path,
@@ -284,6 +293,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             self._agent_tool_calls_path,
             self._agent_sources_path,
             self._agent_optimization_trace_path,
+            self._agent_reasoning_metadata_path,
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch(exist_ok=True)
@@ -363,6 +373,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
     def _fill_queue_from_agent(self) -> None:
         search_space = self._require_search_space()
         last_error: str | None = None
+        reasoning_requirement_failed = False
         for attempt_index in range(self.config.max_retries + 1):
             self._write_workspace_context()
             call_id = f"agent_call_{self._call_index:05d}"
@@ -394,6 +405,15 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 append_jsonl(self._agent_calls_path, call_record)
                 last_error = result.error or result.answer or result.status
                 continue
+            reasoning_metadata = self._reasoning_metadata_for_call(call_id)
+            if reasoning_metadata:
+                call_record["reasoning"] = reasoning_metadata
+            if self.config.require_visible_cot and not self._call_has_visible_reasoning(call_id):
+                call_record["reasoning_error"] = "Required visible CoT was not captured for this agent call."
+                append_jsonl(self._agent_calls_path, call_record)
+                last_error = call_record["reasoning_error"]
+                reasoning_requirement_failed = True
+                continue
             try:
                 parsed = parse_agent_candidate_payload(result.answer, search_space)
             except GeneralAgentValidationError as exc:
@@ -409,6 +429,9 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             if accepted > 0:
                 return
             last_error = "Agent returned only duplicate candidate configurations."
+
+        if reasoning_requirement_failed:
+            raise RuntimeError(f"{self.name} failed the visible CoT requirement: {last_error}")
 
         if not self.config.allow_fallback:
             raise RuntimeError(f"{self.name} failed to produce a valid candidate and fallback is disabled: {last_error}")
@@ -461,8 +484,41 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             tools=tools,
             tool_executor=tool_executor,
             max_tool_calls=self.config.max_tool_calls,
+            extra_env=self._agent_call_env(call_id),
         )
         return _run_coro_sync(coro)
+
+    def _agent_call_env(self, call_id: str) -> dict[str, str]:
+        env = {
+            "BBO_AGENT_CALL_ID": call_id,
+            "BBO_AGENT_MODEL_REQUESTED": self.config.model or "",
+            "BBO_AGENT_PROVIDER": self.config.provider or "",
+            "BBO_AGENT_REQUIRE_VISIBLE_COT": "1" if self.config.require_visible_cot else "0",
+        }
+        if self.config.framework == "nanobot":
+            env["BBO_NANOBOT_REASONING_DIR"] = str(self._agent_reasoning_traces_dir)
+            env["BBO_NANOBOT_REASONING_METADATA_PATH"] = str(self._agent_reasoning_metadata_path)
+        return env
+
+    def _reasoning_metadata_for_call(self, call_id: str) -> dict[str, Any] | None:
+        path = self._agent_reasoning_metadata_path
+        if not path.exists():
+            return None
+        latest: dict[str, Any] | None = None
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if record.get("call_id") == call_id:
+                latest = record
+        return latest
+
+    def _call_has_visible_reasoning(self, call_id: str) -> bool:
+        record = self._reasoning_metadata_for_call(call_id)
+        return bool(record and record.get("reasoning_visible"))
 
     def _build_tool_registry(self) -> BBOToolRegistry:
         tools = create_core_BBO_tools(enable_memory=self.config.enable_memory)
@@ -944,6 +1000,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 "web_search_provider": self.config.web_search_provider,
                 "code_backend": self.config.code_backend,
                 "allow_fallback": self.config.allow_fallback,
+                "require_visible_cot": self.config.require_visible_cot,
             },
         )
 
@@ -991,6 +1048,16 @@ class GeneralAgentBBOAlgorithm(Algorithm):
     def _agent_memory_summary_path(self) -> Path:
         assert self._memory_dir is not None
         return self._memory_dir / "memory_summary.json"
+
+    @property
+    def _agent_reasoning_traces_dir(self) -> Path:
+        assert self._run_dir is not None
+        return self._run_dir / "reasoning_traces"
+
+    @property
+    def _agent_reasoning_metadata_path(self) -> Path:
+        assert self._run_dir is not None
+        return self._run_dir / "agent_reasoning_metadata.jsonl"
 
     def _require_ready(self) -> None:
         if self._task_spec is None or self._search_space is None:

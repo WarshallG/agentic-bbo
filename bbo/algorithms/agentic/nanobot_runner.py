@@ -63,6 +63,91 @@ def _patch_log_llm() -> None:
         now = datetime.now(timezone.utc)
         return now.strftime("%Y-%m-%dT%H-%M-%S-") + f"{now.microsecond // 1000:03d}Z"
 
+    def reasoning_tokens(usage: dict) -> int | None:
+        details = usage.get("completion_tokens_details")
+        if isinstance(details, dict) and details.get("reasoning_tokens") is not None:
+            try:
+                return int(details["reasoning_tokens"])
+            except Exception:
+                return None
+        if usage.get("reasoning_tokens") is not None:
+            try:
+                return int(usage["reasoning_tokens"])
+            except Exception:
+                return None
+        return None
+
+    def reasoning_entries(messages: list) -> list[dict]:
+        entries = []
+        for index, message in enumerate(messages):
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            reasoning = message.get("reasoning_content")
+            thinking_blocks = message.get("thinking_blocks")
+            if not reasoning and not thinking_blocks:
+                continue
+            entry = {
+                "message_index": index,
+                "reasoning_content": reasoning if isinstance(reasoning, str) else "",
+                "thinking_blocks": thinking_blocks if isinstance(thinking_blocks, list) else [],
+                "content_preview": str(message.get("content") or "")[:500],
+                "tool_call_count": len(message.get("tool_calls") or []),
+            }
+            entries.append(entry)
+        return entries
+
+    def write_reasoning_trace(session_key: str, messages: list, usage: dict) -> None:
+        trace_dir_raw = os.environ.get("BBO_NANOBOT_REASONING_DIR")
+        metadata_path_raw = os.environ.get("BBO_NANOBOT_REASONING_METADATA_PATH")
+        if not trace_dir_raw and not metadata_path_raw:
+            return
+        call_id = os.environ.get("BBO_AGENT_CALL_ID") or session_key.replace(":", "_")
+        entries = reasoning_entries(messages)
+        combined = "\n\n".join(entry["reasoning_content"] for entry in entries if entry.get("reasoning_content"))
+        visible = bool(combined.strip() or any(entry.get("thinking_blocks") for entry in entries))
+        trace_path: Path | None = None
+        payload = {
+            "stage": "agent_reasoning",
+            "timestamp": iso_now(),
+            "sessionKey": session_key,
+            "call_id": call_id,
+            "model_requested": os.environ.get("BBO_AGENT_MODEL_REQUESTED") or None,
+            "provider": os.environ.get("BBO_AGENT_PROVIDER") or None,
+            "reasoning_visible": visible,
+            "reasoning_content": combined,
+            "entries": entries,
+            "usage": usage,
+            "reasoning_tokens": reasoning_tokens(usage),
+        }
+        if trace_dir_raw:
+            try:
+                trace_dir = Path(trace_dir_raw)
+                trace_dir.mkdir(parents=True, exist_ok=True)
+                trace_path = trace_dir / f"{call_id}_{filename_ts()}_reasoning.json"
+                trace_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                trace_path = None
+        if metadata_path_raw:
+            try:
+                metadata_path = Path(metadata_path_raw)
+                metadata_path.parent.mkdir(parents=True, exist_ok=True)
+                metadata = {
+                    "timestamp": payload["timestamp"],
+                    "sessionKey": session_key,
+                    "call_id": call_id,
+                    "model_requested": payload["model_requested"],
+                    "provider": payload["provider"],
+                    "reasoning_visible": visible,
+                    "reasoning_chars": len(combined),
+                    "reasoning_entry_count": len(entries),
+                    "reasoning_tokens": payload["reasoning_tokens"],
+                    "trace_path": None if trace_path is None else str(trace_path),
+                }
+                with metadata_path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(metadata, ensure_ascii=False, sort_keys=True) + "\n")
+            except Exception:
+                pass
+
     def write_agent_end(session_key: str, messages: list, duration_s: float, usage: dict, success: bool) -> None:
         session_dir = log_root / session_key
         try:
@@ -84,6 +169,7 @@ def _patch_log_llm() -> None:
                 ),
                 encoding="utf-8",
             )
+            write_reasoning_trace(session_key, messages, usage)
         except Exception:
             pass
 

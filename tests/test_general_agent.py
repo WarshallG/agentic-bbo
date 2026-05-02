@@ -19,6 +19,42 @@ from bbo.run import build_arg_parser
 from bbo.tasks import create_task
 
 
+class ReasoningMetadataMockEngine(MockAgentEngine):
+    async def run_agent(self, *args, extra_env=None, **kwargs):  # type: ignore[no-untyped-def]
+        result = await super().run_agent(*args, extra_env=extra_env, **kwargs)
+        if extra_env:
+            call_id = extra_env["BBO_AGENT_CALL_ID"]
+            trace_dir = Path(extra_env["BBO_NANOBOT_REASONING_DIR"])
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            trace_path = trace_dir / f"{call_id}_reasoning.json"
+            trace_path.write_text(
+                json.dumps(
+                    {
+                        "call_id": call_id,
+                        "reasoning_visible": True,
+                        "reasoning_content": "mock visible reasoning",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            metadata_path = Path(extra_env["BBO_NANOBOT_REASONING_METADATA_PATH"])
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            with metadata_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "call_id": call_id,
+                            "reasoning_visible": True,
+                            "reasoning_chars": len("mock visible reasoning"),
+                            "trace_path": str(trace_path),
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+        return result
+
+
 def test_general_agent_algorithms_are_registered_and_cli_visible() -> None:
     parser = build_arg_parser()
     algorithm_action = next(action for action in parser._actions if action.dest == "algorithm")
@@ -38,6 +74,7 @@ def test_general_agent_algorithms_are_registered_and_cli_visible() -> None:
     assert "agentic_openai_compatible" in algorithm_action.choices
     assert parser.parse_args(["--algorithm", "claude-code"]).algorithm == "claude-code"
     assert parser.parse_args(["--algorithm", "agentic_openai_compatible"]).agent_tool_mode == "function_calling"
+    assert parser.parse_args(["--algorithm", "nanobot", "--agent-require-visible-cot"]).agent_require_visible_cot is True
 
 
 def test_parse_agent_candidate_payload_accepts_config_wrappers() -> None:
@@ -154,6 +191,8 @@ def test_nanobot_bbo_algorithm_with_mock_engine_writes_artifacts(tmp_path: Path)
     assert Path(artifacts["agent_workspace_python_environment_md"]).exists()
     assert Path(artifacts["agent_tool_calls_jsonl"]).exists()
     assert Path(artifacts["agent_memory_jsonl"]).parent.exists()
+    assert Path(artifacts["agent_reasoning_traces_dir"]).exists()
+    assert Path(artifacts["agent_reasoning_metadata_jsonl"]).exists()
     assert (Path(artifacts["agent_workspace"]) / "instructions.md").exists()
     assert (Path(artifacts["agent_workspace"]) / "manifest.json").exists()
     assert (Path(artifacts["agent_workspace"]) / "tool_specs.json").exists()
@@ -290,6 +329,44 @@ def test_workspace_python_api_and_gp_example_run_in_workspace(tmp_path: Path) ->
     ]
     assert any(record["interface"] == "workspace_python_api" for record in records)
     assert any(record["tool_name"] == "validate_candidates" for record in records)
+
+
+def test_general_agent_visible_cot_requirement_uses_reasoning_metadata(tmp_path: Path) -> None:
+    task = create_task("branin_demo", max_evaluations=4, seed=8)
+    missing = NanobotBBOAlgorithm(
+        engine=MockAgentEngine(seed=31),
+        run_dir=tmp_path / "missing_reasoning",
+        tool_mode="workspace_json",
+        require_visible_cot=True,
+        max_retries=0,
+    )
+    missing.setup(task.spec, seed=8, task_description=task.get_description())
+    with pytest.raises(RuntimeError, match="visible CoT"):
+        missing.ask()
+
+    present = NanobotBBOAlgorithm(
+        engine=ReasoningMetadataMockEngine(seed=32),
+        run_dir=tmp_path / "present_reasoning",
+        tool_mode="workspace_json",
+        require_visible_cot=True,
+        max_retries=0,
+    )
+    present.setup(task.spec, seed=8, task_description=task.get_description())
+    suggestion = present.ask()
+    task.spec.search_space.validate_config(suggestion.config)
+    metadata_records = [
+        json.loads(line)
+        for line in Path(present.artifact_paths["agent_reasoning_metadata_jsonl"]).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert metadata_records
+    assert metadata_records[-1]["reasoning_visible"] is True
+    call_records = [
+        json.loads(line)
+        for line in Path(present.artifact_paths["agent_calls_jsonl"]).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert call_records[-1]["reasoning"]["reasoning_visible"] is True
 
 
 def test_general_agent_replay_resume_extends_history(tmp_path: Path) -> None:
