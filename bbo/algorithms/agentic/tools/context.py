@@ -21,6 +21,9 @@ class BBOToolContext:
     history: list[TrialObservation]
     incumbent: Incumbent | None
     memory_store: BBOMemoryStore | None = None
+    code_backend: object | None = None
+    web_search_provider: object | None = None
+    source_logger: object | None = None
     seed: int = 0
 
 

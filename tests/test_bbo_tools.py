@@ -9,6 +9,11 @@ from bbo.algorithms.agentic.tools import (
     BBOToolCallLogger,
     BBOToolContext,
     BBOToolRegistry,
+    BBOWebSourceLogger,
+    CodeInterpreterTool,
+    MockBBOCodeBackend,
+    MockBBOWebSearchProvider,
+    WebSearchTool,
     create_core_BBO_tools,
 )
 from bbo.core import Incumbent, TrialObservation, TrialStatus, TrialSuggestion, load_BBO_manifest
@@ -44,6 +49,9 @@ def _tool_context(tmp_path: Path) -> BBOToolContext:
         history=history,
         incumbent=incumbent,
         memory_store=BBOMemoryStore(tmp_path / "memory" / "memory.jsonl", tmp_path / "memory" / "summary.json"),
+        code_backend=MockBBOCodeBackend(stdout="42\n"),
+        web_search_provider=MockBBOWebSearchProvider(),
+        source_logger=BBOWebSourceLogger(tmp_path / "sources.jsonl"),
         seed=13,
     )
 
@@ -121,3 +129,23 @@ def test_BBO_memory_tools_are_append_only(tmp_path: Path) -> None:
     assert read_back["count"] == 1
     assert read_back["records"][0]["kind"] == "hypothesis"
     assert (tmp_path / "memory" / "summary.json").exists()
+
+
+def test_BBO_code_and_web_tools_use_pluggable_backends(tmp_path: Path) -> None:
+    context = _tool_context(tmp_path)
+    registry = BBOToolRegistry([CodeInterpreterTool(), WebSearchTool()])
+
+    code_result = json.loads(
+        _run(registry.execute_tool("code_interpreter", {"code": "print(6 * 7)", "language": "python"}, context))
+    )["result"]
+    assert code_result["backend"] == "MockBBOCodeBackend"
+    assert code_result["sandbox_result"]["run_result"]["stdout"] == "42\n"
+    assert code_result["budget_consumed"] is False
+
+    search_result = json.loads(
+        _run(registry.execute_tool("web_search", {"query": "BBOPlace macro placement prior", "limit": 3}, context))
+    )["result"]
+    assert search_result["count"] == 1
+    assert search_result["results"][0]["source_id"].startswith("src_")
+    source_records = (tmp_path / "sources.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    assert json.loads(source_records[0])["kind"] == "search_result"
