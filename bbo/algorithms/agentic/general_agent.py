@@ -279,6 +279,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             "agent_workspace_bbo_tools_py": str(self._workspace_dir / "bbo_tools.py"),
             "agent_workspace_tool_config_json": str(self._workspace_dir / "bbo_tool_config.json"),
             "agent_workspace_gp_example_py": str(self._workspace_dir / "examples" / "gp_expected_improvement.py"),
+            "agent_workspace_gp_entrypoint_py": str(self._workspace_dir / "gp_expected_improvement.py"),
             "agent_workspace_python_environment_md": str(self._workspace_dir / "python_environment.md"),
             "agent_tool_calls_jsonl": str(self._agent_tool_calls_path),
             "agent_sources_jsonl": str(self._agent_sources_path),
@@ -734,6 +735,28 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             path.chmod(0o755)
         except OSError:
             pass
+        entrypoint = self._workspace_dir / "gp_expected_improvement.py"
+        entrypoint.write_text(
+            textwrap.dedent(
+                """
+                #!/usr/bin/env python3
+                from __future__ import annotations
+
+                import runpy
+                from pathlib import Path
+
+
+                if __name__ == "__main__":
+                    workspace = Path(__file__).resolve().parent
+                    runpy.run_path(str(workspace / "examples" / "gp_expected_improvement.py"), run_name="__main__")
+                """
+            ).lstrip(),
+            encoding="utf-8",
+        )
+        try:
+            entrypoint.chmod(0o755)
+        except OSError:
+            pass
 
     def _render_python_environment(self) -> str:
         return textwrap.dedent(
@@ -753,7 +776,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
 
             Recommended libraries for local analysis are the Python standard library,
             `numpy`, and `scikit-learn`. The bundled GP example in
-            `examples/gp_expected_improvement.py` uses `numpy` and `scikit-learn`; if
+            `gp_expected_improvement.py` uses `numpy` and `scikit-learn`; if
             `scikit-learn` is unavailable, it falls back to validated sampling.
 
             When `code_interpreter` is configured with SandboxFusion, the SandboxFusion
@@ -787,6 +810,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             - incumbent.json: current best known configuration, if any.
             - tool_specs.json: available BBO function-calling tools when the backend supports tools.
             - bbo_tools.py: preferred Python API for BBO tools when using shell/file tools.
+            - gp_expected_improvement.py: root-level relative entrypoint for the GP/LCB example.
             - examples/gp_expected_improvement.py: editable GP/LCB candidate-generation example.
             - python_environment.md: Python and sandbox library guidance.
             - bbo_tool.py: lower-level CLI bridge for BBO tools; use only as a fallback.
@@ -797,10 +821,12 @@ class GeneralAgentBBOAlgorithm(Algorithm):
 
             Preferred Python workflow:
             - Write and run small Python scripts in this workspace.
+            - Use relative paths from the workspace. Do not execute absolute paths.
             - Import the BBO API with `from bbo_tools import BBO`.
             - Use `BBO().search_space()`, `BBO().history(...)`, `BBO().incumbent()`,
               and `BBO().validate(...)` before emitting final candidates.
-            - When enough history exists, run or adapt `examples/gp_expected_improvement.py`
+            - When enough history exists, run `python3 gp_expected_improvement.py` or adapt
+              `examples/gp_expected_improvement.py`
               to fit a GP-style surrogate and propose candidates.
             - Tool/API calls are append-only logged to agent_tool_calls.jsonl.
 
@@ -811,6 +837,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             - Return {self.config.candidates_per_call} candidate configurations when possible.
             - Use BBO tools for task context, history, memory, validation, code analysis, or web research when available.
             - Validate proposed candidates with `BBO().validate(...)` before final output.
+            - If any script or command fails, recover with `BBO().sample(...)` and `BBO().validate(...)`; never return an error message as the final answer.
             - Do not include markdown fences, comments, prose, or partial configurations.
             - Float and integer values must stay within their declared bounds.
             - Categorical values must be one of the declared choices.
@@ -829,13 +856,16 @@ class GeneralAgentBBOAlgorithm(Algorithm):
 
             Read `instructions.md`, `task.md`, `manifest.json`, `space.json`,
             `objective.json`, `history.jsonl`, `incumbent.json`, `tool_specs.json`,
-            `python_environment.md`, and `examples/gp_expected_improvement.py`
+            `python_environment.md`, `gp_expected_improvement.py`, and
+            `examples/gp_expected_improvement.py`
             in the workspace.
 
             If native function-calling tools are unavailable, use the workspace Python
             API: `from bbo_tools import BBO`. At minimum, inspect search space,
             history, incumbent, and validate your final candidate list. When enough
-            history exists, run or adapt the GP example script before proposing candidates.
+            history exists, run `python3 gp_expected_improvement.py` from the workspace
+            or adapt the GP example script before proposing candidates. Use relative
+            paths only, and recover to validated sampling if any command fails.
 
             Current best primary objective: {best_score}
             Objective direction: {task_spec.primary_objective.direction.value}

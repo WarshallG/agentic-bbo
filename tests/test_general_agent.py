@@ -188,6 +188,7 @@ def test_nanobot_bbo_algorithm_with_mock_engine_writes_artifacts(tmp_path: Path)
     assert Path(artifacts["agent_workspace_bbo_tools_py"]).exists()
     assert Path(artifacts["agent_workspace_tool_config_json"]).exists()
     assert Path(artifacts["agent_workspace_gp_example_py"]).exists()
+    assert Path(artifacts["agent_workspace_gp_entrypoint_py"]).exists()
     assert Path(artifacts["agent_workspace_python_environment_md"]).exists()
     assert Path(artifacts["agent_tool_calls_jsonl"]).exists()
     assert Path(artifacts["agent_memory_jsonl"]).parent.exists()
@@ -309,7 +310,7 @@ def test_workspace_python_api_and_gp_example_run_in_workspace(tmp_path: Path) ->
     assert api_payload["search_enabled"] is True
 
     gp_probe = subprocess.run(
-        [sys.executable, str(Path(artifacts["agent_workspace_gp_example_py"]))],
+        [sys.executable, "gp_expected_improvement.py"],
         cwd=workspace,
         check=False,
         text=True,
