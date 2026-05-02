@@ -128,12 +128,15 @@ class NanobotEngine(GeneralAgentEngine):
                 error=f"Timeout after {timeout}s",
                 returncode=-1,
             )
+        stdout_text = stdout.decode(errors="replace").strip()
+        stderr_text = stderr.decode(errors="replace").strip()
+        error_text = None
+        if proc.returncode != 0:
+            error_text = "\n".join(part for part in (stderr_text, stdout_text) if part) or None
         return AgentResult(
             status="success" if proc.returncode == 0 else "failed",
-            answer=stdout.decode(errors="replace").strip(),
-            error=(stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip() or None)
-            if proc.returncode != 0
-            else None,
+            answer=stdout_text,
+            error=error_text,
             returncode=proc.returncode,
         )
 

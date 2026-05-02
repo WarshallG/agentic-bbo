@@ -8,7 +8,6 @@ from urllib import error as urllib_error
 import pytest
 
 from bbo.algorithms import ALGORITHM_REGISTRY, LlamboAlgorithm
-from bbo.algorithms.agentic.llambo import LlamboAlgorithm as CompatLlamboAlgorithm
 from bbo.algorithms.llm_based.llambo import (
     CandidateGenerationRequest,
     ObservedPoint,
@@ -68,7 +67,6 @@ def test_llambo_is_registered_and_cli_visible() -> None:
     assert "llambo" in ALGORITHM_REGISTRY
     assert ALGORITHM_REGISTRY["llambo"].family == "llm_based"
     assert ALGORITHM_REGISTRY["llambo"].numeric_only is False
-    assert CompatLlamboAlgorithm is LlamboAlgorithm
     assert "llambo" in algorithm_action.choices
     assert parser.parse_args(["--algorithm", "llambo"]).algorithm == "llambo"
     parsed = parser.parse_args(
@@ -141,7 +139,7 @@ def test_llambo_runner_builds_online_backend_and_backend_uses_structured_outputs
         )
         return _FakeHttpResponse(queued_payloads.pop(0))
 
-    monkeypatch.setattr("bbo.algorithms.agentic.llambo.urllib_request.urlopen", _fake_urlopen)
+    monkeypatch.setattr("bbo.algorithms.llm_based.llambo.urllib_request.urlopen", _fake_urlopen)
 
     kwargs = _build_llambo_algorithm_kwargs(
         llambo_backend="openai",
@@ -245,7 +243,7 @@ def test_llambo_openai_fallback_to_plain_text_when_json_schema_rejected(monkeypa
             raise _Err()
         return _FakeHttpResponse(text_payload)
 
-    monkeypatch.setattr("bbo.algorithms.agentic.llambo.urllib_request.urlopen", _fake_urlopen)
+    monkeypatch.setattr("bbo.algorithms.llm_based.llambo.urllib_request.urlopen", _fake_urlopen)
 
     backend = OpenAICompatibleLlamboBackend(
         model="gpt-4o-mini",

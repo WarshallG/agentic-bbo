@@ -56,7 +56,7 @@ Reusable benchmark abstractions:
 Algorithm implementations are grouped by family.
 Current families:
 
-- `bbo/algorithms/agentic/` — agentic orchestration (e.g. Pablo, Nanobot, Claude Code adapters)
+- `bbo/algorithms/agentic/` — agent algorithms and the general-agent runtime. Pablo is a benchmark-internal role optimizer; the general-agent runtime is for Nanobot / Claude Code style agents.
 - `bbo/algorithms/llm_based/`
   - `llambo.py`, `opro.py`
   - `skydiscover_interleaved.py` (SkyDiscover-backed OpenEvolve, GEPA, EvoX, and AdaEvolve integration; ShinkaEvolve can be added as an external backend)

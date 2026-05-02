@@ -106,6 +106,7 @@ class GeneralAgentConfig:
     sandbox_fusion_base_url: str | None = None
     web_search_provider: str = "disabled"
     web_search_api_key_env: str | None = None
+    allow_fallback: bool = True
 
 
 class GeneralAgentBBOAlgorithm(Algorithm):
@@ -136,6 +137,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
         sandbox_fusion_base_url: str | None = None,
         web_search_provider: str = "disabled",
         web_search_api_key_env: str | None = None,
+        allow_fallback: bool = True,
     ) -> None:
         normalized = normalize_agent_framework(framework)
         if timeout_seconds <= 0:
@@ -176,6 +178,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             sandbox_fusion_base_url=sandbox_fusion_base_url,
             web_search_provider=web_search_provider,
             web_search_api_key_env=web_search_api_key_env,
+            allow_fallback=bool(allow_fallback),
         )
         self._engine = engine or create_general_agent_engine(normalized)
         self._task_spec: TaskSpec | None = None
@@ -256,8 +259,10 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             "agent_state_dir": str(self._state_dir),
             "agent_calls_jsonl": str(self._agent_calls_path),
             "agent_prompts_jsonl": str(self._agent_prompts_path),
+            "agent_llm_logs_dir": str(log_dir),
             "agent_state_json": str(self._agent_state_path),
             "agent_history_jsonl": str(self._workspace_dir / "history.jsonl"),
+            "agent_optimization_trace_jsonl": str(self._agent_optimization_trace_path),
             "agent_space_json": str(self._workspace_dir / "space.json"),
             "agent_task_md": str(self._workspace_dir / "task.md"),
             "agent_manifest_json": str(self._workspace_dir / "manifest.json"),
@@ -267,7 +272,13 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             "agent_memory_jsonl": str(self._agent_memory_path),
             "agent_memory_summary_json": str(self._agent_memory_summary_path),
         }
-        for path in (self._agent_calls_path, self._agent_prompts_path, self._agent_tool_calls_path, self._agent_sources_path):
+        for path in (
+            self._agent_calls_path,
+            self._agent_prompts_path,
+            self._agent_tool_calls_path,
+            self._agent_sources_path,
+            self._agent_optimization_trace_path,
+        ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch(exist_ok=True)
         if self._tool_registry is not None:
@@ -392,6 +403,9 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             if accepted > 0:
                 return
             last_error = "Agent returned only duplicate candidate configurations."
+
+        if not self.config.allow_fallback:
+            raise RuntimeError(f"{self.name} failed to produce a valid candidate and fallback is disabled: {last_error}")
 
         fallback = self._fallback_candidate(last_error or "agent_failed")
         if fallback is not None:
@@ -533,7 +547,6 @@ class GeneralAgentBBOAlgorithm(Algorithm):
         return None
 
     def _ingest_observation(self, observation: TrialObservation, *, replay: bool = False) -> None:
-        del replay
         assert self._primary_name is not None
         self._history.append(observation)
         self._seen_config_ids.add(stable_config_identity(observation.suggestion.config))
@@ -552,6 +565,25 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 self._best = incumbent
             elif self._primary_direction == ObjectiveDirection.MAXIMIZE and score > float(self._best.score):
                 self._best = incumbent
+        if not replay and self._run_dir is not None:
+            append_jsonl(
+                self._agent_optimization_trace_path,
+                {
+                    "step": len(self._history),
+                    "trial": _observation_summary(observation),
+                    "best": None
+                    if self._best is None
+                    else {
+                        "config": self._best.config,
+                        "score": self._best.score,
+                        "objectives": self._best.objectives,
+                        "trial_id": self._best.trial_id,
+                    },
+                    "agent_framework": self.config.framework,
+                    "agent_engine": self._engine.name,
+                    "timestamp": time.time(),
+                },
+            )
 
     def _write_workspace_context(self) -> None:
         self._require_ready()
@@ -809,6 +841,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 "enable_memory": self.config.enable_memory,
                 "web_search_provider": self.config.web_search_provider,
                 "code_backend": self.config.code_backend,
+                "allow_fallback": self.config.allow_fallback,
             },
         )
 
@@ -826,6 +859,11 @@ class GeneralAgentBBOAlgorithm(Algorithm):
     def _agent_state_path(self) -> Path:
         assert self._run_dir is not None
         return self._run_dir / "agent_state.json"
+
+    @property
+    def _agent_optimization_trace_path(self) -> Path:
+        assert self._run_dir is not None
+        return self._run_dir / "agent_optimization_trace.jsonl"
 
     @property
     def _agent_tool_calls_path(self) -> Path:

@@ -235,6 +235,7 @@ def run_single_experiment(
     sandbox_fusion_base_url: str | None = None,
     agent_web_search_provider: str = "disabled",
     agent_web_search_api_key_env: str | None = None,
+    agent_allow_fallback: bool = True,
     skydiscover_interleave_every: int = 5,
     skydiscover_round_iterations: int = 3,
     skydiscover_config_path: str | Path | None = None,
@@ -337,6 +338,7 @@ def run_single_experiment(
             "sandbox_fusion_base_url": sandbox_fusion_base_url,
             "web_search_provider": agent_web_search_provider,
             "web_search_api_key_env": agent_web_search_api_key_env,
+            "allow_fallback": agent_allow_fallback,
         }
     elif algorithm_name == "llambo":
         algorithm_kwargs = _build_llambo_algorithm_kwargs(
@@ -761,6 +763,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sandbox-fusion-base-url", default=None)
     parser.add_argument("--agent-web-search-provider", choices=["disabled", "mock", "tavily", "serpapi", "bing"], default="disabled")
     parser.add_argument("--agent-web-search-api-key-env", default=None)
+    parser.add_argument("--agent-allow-fallback", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--skydiscover-interleave-every", type=int, default=5)
     parser.add_argument("--skydiscover-round-iterations", type=int, default=3)
     parser.add_argument("--skydiscover-config", type=Path, default=None)
@@ -878,6 +881,7 @@ def main(argv: list[str] | None = None) -> int:
             sandbox_fusion_base_url=args.sandbox_fusion_base_url,
             agent_web_search_provider=args.agent_web_search_provider,
             agent_web_search_api_key_env=args.agent_web_search_api_key_env,
+            agent_allow_fallback=args.agent_allow_fallback,
             skydiscover_interleave_every=args.skydiscover_interleave_every,
             skydiscover_round_iterations=args.skydiscover_round_iterations,
             skydiscover_config_path=args.skydiscover_config,

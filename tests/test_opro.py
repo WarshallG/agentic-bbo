@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from bbo.algorithms import ALGORITHM_REGISTRY, OproAlgorithm
-from bbo.algorithms.agentic.opro import OproAlgorithm as CompatOproAlgorithm
 from bbo.algorithms.llm_based.opro import (
     OpenAICompatibleOproBackend,
     OproGenerationRequest,
@@ -64,7 +63,6 @@ def test_opro_is_registered_and_cli_visible() -> None:
     assert "opro" in ALGORITHM_REGISTRY
     assert ALGORITHM_REGISTRY["opro"].family == "llm_based"
     assert ALGORITHM_REGISTRY["opro"].numeric_only is False
-    assert CompatOproAlgorithm is OproAlgorithm
     assert "opro" in algorithm_action.choices
     assert parser.parse_args(["--algorithm", "opro"]).algorithm == "opro"
 
@@ -109,7 +107,7 @@ def test_opro_runner_builds_online_backend_and_backend_uses_chat_completions(mon
             }
         )
 
-    monkeypatch.setattr("bbo.algorithms.agentic.opro.urllib_request.urlopen", _fake_urlopen)
+    monkeypatch.setattr("bbo.algorithms.llm_based.opro.urllib_request.urlopen", _fake_urlopen)
 
     kwargs = _build_opro_algorithm_kwargs(
         opro_backend="openai",

@@ -1,11 +1,4 @@
-"""Agentic algorithm implementations and compatibility re-exports."""
-
-from ..llm_based import (
-    HeuristicLlamboBackend,
-    LlamboAlgorithm,
-    LlamboBackend,
-    OpenAICompatibleLlamboBackend,
-)
+"""Agentic algorithms and general-agent runtime exports."""
 from .general_agent import (
     ClaudeCodeBBOAlgorithm,
     GeneralAgentBBOAlgorithm,
@@ -27,7 +20,6 @@ from .general_agent_engines import (
 )
 from .llm_client import PabloProviderConfig, create_llm_client
 from .model_routing import PabloModelRoutingConfig, build_routing_table, resolve_role_model
-from ..llm_based import HeuristicOproBackend, OpenAICompatibleOproBackend, OproAlgorithm, OproBackend
 from .pablo import PabloAlgorithm
 from .prompts import build_explorer_prompt, build_planner_prompt, build_worker_prompt
 from .task_registry import TaskCard, TaskRegistry
@@ -42,19 +34,11 @@ __all__ = [
     "GeneralAgentConfig",
     "GeneralAgentEngine",
     "GeneralAgentValidationError",
-    "HeuristicLlamboBackend",
-    "HeuristicOproBackend",
-    "LlamboAlgorithm",
-    "LlamboBackend",
     "MockAgentEngine",
     "NanobotBBOAlgorithm",
     "NanobotEngine",
-    "OpenAICompatibleLlamboBackend",
     "OpenAICompatibleBBOAlgorithm",
-    "OpenAICompatibleOproBackend",
     "OpenAICompatibleToolEngine",
-    "OproAlgorithm",
-    "OproBackend",
     "PabloAlgorithm",
     "PabloModelRoutingConfig",
     "PabloProviderConfig",
