@@ -252,6 +252,7 @@ Current public names:
 The runtime writes `agent_workspace/`, `agent_state/`, `agent_memory/`, `agent_tool_calls.jsonl`, `agent_web_sources.jsonl`, `llm_logs/`, and `agent_optimization_trace.jsonl` under each run directory.
 Tools include task context, search-space inspection, trial history, incumbent lookup, candidate validation, sampling, history analysis, append-only memory, code execution, web search, and URL fetch.
 For shell/file agents such as Nanobot and Claude Code, the workspace exposes a Python API in `agent_workspace/bbo_tools.py`; agents should prefer `from bbo_tools import BBO` and write small scripts instead of calling the lower-level `bbo_tool.py` CLI directly. The workspace also includes `examples/gp_expected_improvement.py`, an editable GP/LCB example that reads history, fits a `scikit-learn` GP when possible, validates candidates, and prints the strict candidates JSON schema.
+For Search-R1-compatible web research, run a Search-R1 `/retrieve` server separately and set `--agent-web-search-provider search_r1`; setup details are in [`docs/search_r1_web_search.md`](docs/search_r1_web_search.md).
 
 The code tool is designed for SandboxFusion's `/run_code` API; BBO does not provide a custom local security sandbox. Start a SandboxFusion server separately and pass `--sandbox-fusion-base-url` or set `SANDBOX_FUSION_BASE_URL`. Recommended SandboxFusion Python packages for BBO agents are `numpy`, `scipy`, `scikit-learn`, `pandas`, and `joblib`. Check a server before a real run with:
 
