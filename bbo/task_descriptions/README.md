@@ -22,6 +22,7 @@ Recommended optional files:
   evaluation.md
   submission.md
   environment.md
+  manifest.json
   notes.md
   history.md
 ```
@@ -44,6 +45,24 @@ Every task package must provide at least one of the following:
 - an `environment.md` file with explicit setup instructions
 
 The task sanity checks enforce that at least one of these provisioning paths exists.
+
+## Agent benchmark manifest
+
+New agent-facing tasks should include `manifest.json`.
+The manifest lets the runtime build a benchmark-like workspace instead of only handing the agent markdown.
+It may declare:
+
+- `task_id`, `family`, and `real_world_domain`
+- `workspace_seed_files` to copy into the agent workspace
+- `tool_policy` for BBO tools such as `code_interpreter`, `web_search`, and `fetch_url`
+- `research_policy` for external research and allowed fetch domains
+- `memory_policy` for append-only agent memory
+- `evaluation_endpoint` and budget metadata
+- `dynamic_updates`, `artifact_policy`, and provenance
+
+Existing tasks without `manifest.json` still run.
+The loader synthesizes a compatible manifest from `TaskSpec` and the markdown directory.
+Use `_template/manifest.json` as the starting point for new tasks.
 
 ## Localized companion files
 

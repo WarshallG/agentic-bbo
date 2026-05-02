@@ -240,6 +240,32 @@ Additional tuning flags:
 
 A ready-made demo script for the online backend is provided at `examples/run_llambo_openai_demo.py`.
 
+### Agentic BBO agents
+
+The general-agent entrypoints expose a BBO function-calling runtime in addition to the workspace JSON files.
+Current public names:
+
+- `nanobot` / `agentic_nanobot`
+- `claude_code` / `agentic_claude_code`
+- `agentic_openai_compatible`
+
+The runtime writes `agent_workspace/`, `agent_state/`, `agent_memory/`, `agent_tool_calls.jsonl`, and `agent_web_sources.jsonl` under each run directory.
+Tools include task context, search-space inspection, trial history, incumbent lookup, candidate validation, sampling, history analysis, append-only memory, code execution, web search, and URL fetch.
+The code tool is designed for SandboxFusion's `/run_code` API; start a SandboxFusion server separately and pass `--sandbox-fusion-base-url` or set `SANDBOX_FUSION_BASE_URL`.
+
+```bash
+uv run python -m bbo.run \
+  --algorithm agentic_openai_compatible \
+  --task branin_demo \
+  --max-evaluations 8 \
+  --agent-api-key-env OPENAI_API_KEY \
+  --agent-model gpt-4.1-mini \
+  --agent-tool-mode function_calling \
+  --agent-web-search-provider disabled
+```
+
+For offline smoke tests, use `NanobotBBOAlgorithm(engine=MockAgentEngine(...))` from Python; the mock engine exercises the same BBO tool registry without external credentials.
+
 OPRO uses the public algorithm name `opro`. The default `heuristic` backend is an offline smoke-test path that adapts the original OPRO config/value meta-prompt pattern to repository-native search spaces:
 
 ```bash
@@ -397,6 +423,7 @@ Recommended optional files:
 evaluation.md
 submission.md
 environment.md
+manifest.json
 notes.md
 history.md
 ```
@@ -408,6 +435,10 @@ Each task must also provide at least one environment provisioning path:
 
 - a task-local Docker workflow
 - or explicit setup instructions in `environment.md`
+
+`manifest.json` is optional for existing tasks but recommended for new agent benchmarks.
+It records the benchmark family, real-world domain, workspace seed files, tool policy, web/code research policy, memory policy, evaluation endpoint, budget, dynamic updates, artifact policy, and provenance.
+If it is missing, the runner synthesizes a compatible manifest from `TaskSpec` and the markdown description.
 
 Related documentation:
 
