@@ -173,6 +173,7 @@ def test_workspace_tool_bridge_calls_every_advertised_tool(tmp_path: Path) -> No
     artifacts = algorithm.artifact_paths
     workspace = Path(artifacts["agent_workspace"])
     tool_script = Path(artifacts["agent_workspace_tool_py"])
+    assert "from bbo." not in tool_script.read_text(encoding="utf-8")
     calls = {
         "get_task_context": {"max_chars_per_section": 500},
         "get_search_space": {},

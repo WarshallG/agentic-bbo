@@ -631,25 +631,8 @@ class GeneralAgentBBOAlgorithm(Algorithm):
 
     def _write_workspace_tool_bridge(self) -> None:
         assert self._workspace_dir is not None
-        repo_root = Path(__file__).resolve().parents[3]
-        script = textwrap.dedent(
-            f"""
-            #!/usr/bin/env python3
-            from __future__ import annotations
-
-            import sys
-            from pathlib import Path
-
-            sys.path.insert(0, {str(repo_root)!r})
-
-            from bbo.algorithms.agentic.workspace_tool_cli import main
-
-
-            if __name__ == "__main__":
-                config_path = Path(__file__).with_name("bbo_tool_config.json")
-                raise SystemExit(main(default_config_path=str(config_path)))
-            """
-        ).lstrip()
+        cli_source = Path(__file__).with_name("workspace_tool_cli.py").read_text(encoding="utf-8")
+        script = "#!/usr/bin/env python3\n" + cli_source
         tool_path = self._workspace_dir / "bbo_tool.py"
         tool_path.write_text(script, encoding="utf-8")
         try:
