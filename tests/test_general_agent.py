@@ -200,6 +200,18 @@ def test_workspace_tool_bridge_calls_every_advertised_tool(tmp_path: Path) -> No
         payload = json.loads(completed.stdout)
         assert payload["ok"] is True
 
+    for tool_name in ("get_space", "get_history", "get_objective", "get_tool_specs", "get_manifest"):
+        completed = subprocess.run(
+            [sys.executable, str(tool_script), tool_name, "{}"],
+            cwd=workspace,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert completed.returncode == 0, completed.stderr
+        payload = json.loads(completed.stdout)
+        assert payload["ok"] is True
+
     records = [
         json.loads(line)
         for line in Path(artifacts["agent_tool_calls_jsonl"]).read_text(encoding="utf-8").splitlines()

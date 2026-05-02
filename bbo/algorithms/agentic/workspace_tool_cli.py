@@ -50,9 +50,20 @@ def main(argv: list[str] | None = None, *, default_config_path: str | None = Non
 
 
 def _execute(tool_name: str, arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    aliases = {
+        "get_history": "get_trial_history",
+        "get_space": "get_search_space",
+        "get_objective": "get_objective",
+        "get_tool_specs": "get_tool_specs",
+        "get_manifest": "get_manifest",
+    }
+    tool_name = aliases.get(tool_name, tool_name)
     handlers: dict[str, ToolHandler] = {
         "get_task_context": _get_task_context,
+        "get_manifest": _get_manifest,
         "get_search_space": _get_search_space,
+        "get_objective": _get_objective,
+        "get_tool_specs": _get_tool_specs,
         "get_trial_history": _get_trial_history,
         "get_incumbent": _get_incumbent,
         "validate_candidates": _validate_candidates,
@@ -97,6 +108,21 @@ def _get_search_space(arguments: dict[str, Any], config: dict[str, Any]) -> dict
         "defaults": {param["name"]: param.get("default") for param in parameters},
         "dimension": len(parameters),
     }
+
+
+def _get_manifest(arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    del arguments
+    return {"manifest": _manifest(config)}
+
+
+def _get_objective(arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    del arguments
+    return {"objective": _objective(config)}
+
+
+def _get_tool_specs(arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    del arguments
+    return _read_json(_workspace(config) / "tool_specs.json")
 
 
 def _get_trial_history(arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
