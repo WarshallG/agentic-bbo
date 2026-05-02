@@ -122,12 +122,42 @@ class BingBBOWebSearchProvider:
         ]
 
 
-def create_BBO_web_search_provider(provider: str, *, api_key_env: str | None = None) -> object:
+@dataclass
+class SearchR1BBOWebSearchProvider:
+    """Search provider compatible with Search-R1-style retrieval servers."""
+
+    base_url: str
+    timeout_seconds: float = 30.0
+
+    async def search(self, *, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        payload = {
+            "queries": [query],
+            "topk": max(1, int(limit)),
+            "return_scores": True,
+        }
+        data = await asyncio.to_thread(_post_json, _search_r1_retrieve_url(self.base_url), payload, self.timeout_seconds)
+        return _parse_search_r1_results(data, limit=max(1, int(limit)))
+
+
+def create_BBO_web_search_provider(
+    provider: str,
+    *,
+    api_key_env: str | None = None,
+    search_r1_base_url: str | None = None,
+) -> object:
     normalized = provider.strip().lower().replace("-", "_")
     if normalized in {"", "disabled", "none"}:
         return DisabledBBOWebSearchProvider()
     if normalized == "mock":
         return MockBBOWebSearchProvider()
+    if normalized == "search_r1":
+        base_url = search_r1_base_url or os.environ.get("AGENT_SEARCH_R1_BASE_URL")
+        if not base_url:
+            raise ValueError(
+                "BBO web search provider `search_r1` requires `--agent-search-r1-base-url` "
+                "or AGENT_SEARCH_R1_BASE_URL."
+            )
+        return SearchR1BBOWebSearchProvider(base_url=base_url)
     env_name = api_key_env or {
         "tavily": "TAVILY_API_KEY",
         "serpapi": "SERPAPI_API_KEY",
@@ -239,12 +269,71 @@ def _get_json(url: str, timeout_seconds: float, headers: dict[str, str] | None =
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _search_r1_retrieve_url(base_url: str) -> str:
+    stripped = base_url.strip().rstrip("/")
+    if not stripped:
+        raise ValueError("Search-R1 base URL must be non-empty.")
+    if stripped.endswith("/retrieve"):
+        return stripped
+    return urllib.parse.urljoin(stripped + "/", "retrieve")
+
+
+def _parse_search_r1_results(data: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    raw_results = data.get("result", data.get("results", []))
+    if isinstance(raw_results, list) and raw_results and isinstance(raw_results[0], list):
+        raw_items = raw_results[0]
+    elif isinstance(raw_results, list):
+        raw_items = raw_results
+    else:
+        raw_items = []
+    parsed = []
+    for item in raw_items[:limit]:
+        if not isinstance(item, dict):
+            continue
+        result = _normalize_search_r1_item(item)
+        if result is not None:
+            parsed.append(result)
+    return parsed
+
+
+def _normalize_search_r1_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    document = item.get("document") or item.get("doc") or item
+    if not isinstance(document, dict):
+        return None
+    contents = str(document.get("contents", document.get("text", document.get("content", ""))))
+    parsed_title, parsed_snippet = _split_search_r1_contents(contents)
+    title = str(document.get("title") or item.get("title") or parsed_title or "Search-R1 result")
+    url = str(document.get("url") or document.get("link") or item.get("url") or item.get("link") or "")
+    snippet = str(document.get("snippet") or item.get("snippet") or parsed_snippet or contents)
+    result: dict[str, Any] = {
+        "title": title,
+        "url": url,
+        "snippet": snippet,
+        "raw_document": document,
+    }
+    if "score" in item:
+        result["score"] = item["score"]
+    return result
+
+
+def _split_search_r1_contents(contents: str) -> tuple[str, str]:
+    lines = [line.strip() for line in contents.splitlines() if line.strip()]
+    if not lines:
+        return "", ""
+    title = lines[0].strip().strip('"')
+    snippet = "\n".join(lines[1:]).strip() if len(lines) > 1 else title
+    return title, snippet
+
+
 __all__ = [
     "BBOWebSourceLogger",
     "BingBBOWebSearchProvider",
     "DisabledBBOWebSearchProvider",
     "FetchURLTool",
     "MockBBOWebSearchProvider",
+    "SearchR1BBOWebSearchProvider",
     "SerpApiBBOWebSearchProvider",
     "TavilyBBOWebSearchProvider",
     "WebSearchTool",

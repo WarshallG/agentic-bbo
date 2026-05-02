@@ -371,6 +371,8 @@ def _web_search(arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, 
         raw_results = _serpapi_search(query, limit, str(config.get("web_search_api_key_env") or "SERPAPI_API_KEY"))
     elif provider == "bing":
         raw_results = _bing_search(query, limit, str(config.get("web_search_api_key_env") or "BING_SEARCH_API_KEY"))
+    elif provider == "search_r1":
+        raw_results = _search_r1_search(query, limit, str(config.get("search_r1_base_url") or ""))
     else:
         raise ValueError(f"Unknown BBO web search provider `{provider}`.")
     logged = [_log_source(config, {"kind": "search_result", "query": query, **item}) for item in raw_results]
@@ -649,6 +651,70 @@ def _bing_search(query: str, limit: int, api_key_env: str) -> list[dict[str, Any
         for item in items
         if isinstance(item, dict)
     ]
+
+
+def _search_r1_search(query: str, limit: int, base_url: str) -> list[dict[str, Any]]:
+    endpoint = _search_r1_retrieve_url(base_url or os.environ.get("AGENT_SEARCH_R1_BASE_URL", ""))
+    data = _post_json(endpoint, {"queries": [query], "topk": limit, "return_scores": True}, 30.0)
+    return _parse_search_r1_results(data, limit=limit)
+
+
+def _search_r1_retrieve_url(base_url: str) -> str:
+    stripped = base_url.strip().rstrip("/")
+    if not stripped:
+        raise RuntimeError("Search-R1 provider requires AGENT_SEARCH_R1_BASE_URL or `search_r1_base_url` in config.")
+    if stripped.endswith("/retrieve"):
+        return stripped
+    return urllib.parse.urljoin(stripped + "/", "retrieve")
+
+
+def _parse_search_r1_results(data: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    raw_results = data.get("result", data.get("results", []))
+    if isinstance(raw_results, list) and raw_results and isinstance(raw_results[0], list):
+        raw_items = raw_results[0]
+    elif isinstance(raw_results, list):
+        raw_items = raw_results
+    else:
+        raw_items = []
+    parsed = []
+    for item in raw_items[:limit]:
+        if not isinstance(item, dict):
+            continue
+        result = _normalize_search_r1_item(item)
+        if result is not None:
+            parsed.append(result)
+    return parsed
+
+
+def _normalize_search_r1_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    document = item.get("document") or item.get("doc") or item
+    if not isinstance(document, dict):
+        return None
+    contents = str(document.get("contents", document.get("text", document.get("content", ""))))
+    parsed_title, parsed_snippet = _split_search_r1_contents(contents)
+    title = str(document.get("title") or item.get("title") or parsed_title or "Search-R1 result")
+    url = str(document.get("url") or document.get("link") or item.get("url") or item.get("link") or "")
+    snippet = str(document.get("snippet") or item.get("snippet") or parsed_snippet or contents)
+    result: dict[str, Any] = {
+        "title": title,
+        "url": url,
+        "snippet": snippet,
+        "raw_document": document,
+    }
+    if "score" in item:
+        result["score"] = item["score"]
+    return result
+
+
+def _split_search_r1_contents(contents: str) -> tuple[str, str]:
+    lines = [line.strip() for line in contents.splitlines() if line.strip()]
+    if not lines:
+        return "", ""
+    title = lines[0].strip().strip('"')
+    snippet = "\n".join(lines[1:]).strip() if len(lines) > 1 else title
+    return title, snippet
 
 
 def _required_env(name: str) -> str:

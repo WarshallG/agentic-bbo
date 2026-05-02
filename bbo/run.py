@@ -235,6 +235,7 @@ def run_single_experiment(
     sandbox_fusion_base_url: str | None = None,
     agent_web_search_provider: str = "disabled",
     agent_web_search_api_key_env: str | None = None,
+    agent_search_r1_base_url: str | None = None,
     agent_allow_fallback: bool = True,
     agent_require_visible_cot: bool = False,
     skydiscover_interleave_every: int = 5,
@@ -339,6 +340,7 @@ def run_single_experiment(
             "sandbox_fusion_base_url": sandbox_fusion_base_url,
             "web_search_provider": agent_web_search_provider,
             "web_search_api_key_env": agent_web_search_api_key_env,
+            "search_r1_base_url": agent_search_r1_base_url,
             "allow_fallback": agent_allow_fallback,
             "require_visible_cot": agent_require_visible_cot,
         }
@@ -763,8 +765,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-enable-code-interpreter", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--agent-code-backend", choices=["sandboxfusion", "local_disabled", "mock"], default="sandboxfusion")
     parser.add_argument("--sandbox-fusion-base-url", default=None)
-    parser.add_argument("--agent-web-search-provider", choices=["disabled", "mock", "tavily", "serpapi", "bing"], default="disabled")
+    parser.add_argument(
+        "--agent-web-search-provider",
+        choices=["disabled", "mock", "tavily", "serpapi", "bing", "search_r1"],
+        default="disabled",
+    )
     parser.add_argument("--agent-web-search-api-key-env", default=None)
+    parser.add_argument("--agent-search-r1-base-url", default=None)
     parser.add_argument("--agent-allow-fallback", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--agent-require-visible-cot", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--skydiscover-interleave-every", type=int, default=5)
@@ -884,6 +891,7 @@ def main(argv: list[str] | None = None) -> int:
             sandbox_fusion_base_url=args.sandbox_fusion_base_url,
             agent_web_search_provider=args.agent_web_search_provider,
             agent_web_search_api_key_env=args.agent_web_search_api_key_env,
+            agent_search_r1_base_url=args.agent_search_r1_base_url,
             agent_allow_fallback=args.agent_allow_fallback,
             agent_require_visible_cot=args.agent_require_visible_cot,
             skydiscover_interleave_every=args.skydiscover_interleave_every,

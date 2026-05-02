@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from bbo.algorithms.agentic.tools import (
@@ -13,6 +15,7 @@ from bbo.algorithms.agentic.tools import (
     CodeInterpreterTool,
     MockBBOCodeBackend,
     MockBBOWebSearchProvider,
+    SearchR1BBOWebSearchProvider,
     WebSearchTool,
     create_core_BBO_tools,
 )
@@ -22,6 +25,38 @@ from bbo.tasks import create_task
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+class SearchR1MockHandler(BaseHTTPRequestHandler):
+    requests: list[dict] = []
+
+    def log_message(self, format: str, *args) -> None:  # noqa: A002
+        return
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        type(self).requests.append({"path": self.path, "payload": payload})
+        body = json.dumps(
+            {
+                "result": [
+                    [
+                        {
+                            "document": {
+                                "contents": '"Branin prior"\nPrefer structured exploration near known basins.',
+                                "url": "https://example.test/branin",
+                            },
+                            "score": 0.87,
+                        }
+                    ]
+                ]
+            }
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def _tool_context(tmp_path: Path) -> BBOToolContext:
@@ -149,3 +184,35 @@ def test_BBO_code_and_web_tools_use_pluggable_backends(tmp_path: Path) -> None:
     assert search_result["results"][0]["source_id"].startswith("src_")
     source_records = (tmp_path / "sources.jsonl").read_text(encoding="utf-8").strip().splitlines()
     assert json.loads(source_records[0])["kind"] == "search_result"
+
+
+def test_Search_R1_web_provider_calls_retrieve_api(tmp_path: Path) -> None:
+    SearchR1MockHandler.requests = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), SearchR1MockHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        context = _tool_context(tmp_path)
+        context.web_search_provider = SearchR1BBOWebSearchProvider(
+            base_url=f"http://127.0.0.1:{server.server_port}",
+            timeout_seconds=5.0,
+        )
+        registry = BBOToolRegistry([WebSearchTool()])
+
+        result = json.loads(
+            _run(registry.execute_tool("web_search", {"query": "branin optimization prior", "limit": 3}, context))
+        )["result"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5.0)
+
+    assert SearchR1MockHandler.requests == [
+        {
+            "path": "/retrieve",
+            "payload": {"queries": ["branin optimization prior"], "topk": 3, "return_scores": True},
+        }
+    ]
+    assert result["count"] == 1
+    assert result["results"][0]["title"] == "Branin prior"
+    assert result["results"][0]["score"] == 0.87

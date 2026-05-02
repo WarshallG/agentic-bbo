@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,38 @@ from bbo.algorithms.agentic import (
 from bbo.core import ExperimentConfig, Experimenter, JsonlMetricLogger
 from bbo.run import build_arg_parser
 from bbo.tasks import create_task
+
+
+class WorkspaceSearchR1MockHandler(BaseHTTPRequestHandler):
+    requests: list[dict] = []
+
+    def log_message(self, format: str, *args) -> None:  # noqa: A002
+        return
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        type(self).requests.append({"path": self.path, "payload": payload})
+        body = json.dumps(
+            {
+                "result": [
+                    [
+                        {
+                            "document": {
+                                "contents": '"Workspace prior"\nSearch-R1 workspace bridge result.',
+                                "url": "https://example.test/workspace",
+                            },
+                            "score": 0.92,
+                        }
+                    ]
+                ]
+            }
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 class ReasoningMetadataMockEngine(MockAgentEngine):
@@ -74,6 +108,7 @@ def test_general_agent_algorithms_are_registered_and_cli_visible() -> None:
     assert "agentic_openai_compatible" in algorithm_action.choices
     assert parser.parse_args(["--algorithm", "claude-code"]).algorithm == "claude-code"
     assert parser.parse_args(["--algorithm", "agentic_openai_compatible"]).agent_tool_mode == "function_calling"
+    assert parser.parse_args(["--agent-web-search-provider", "search_r1"]).agent_web_search_provider == "search_r1"
     assert parser.parse_args(["--algorithm", "nanobot", "--agent-require-visible-cot"]).agent_require_visible_cot is True
 
 
@@ -264,6 +299,54 @@ def test_workspace_tool_bridge_calls_every_advertised_tool(tmp_path: Path) -> No
     ]
     assert {record["tool_name"] for record in records} >= set(calls)
     assert all(record["success"] is True for record in records)
+
+
+def test_workspace_tool_bridge_supports_search_r1_provider(tmp_path: Path) -> None:
+    WorkspaceSearchR1MockHandler.requests = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), WorkspaceSearchR1MockHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        task = create_task("branin_demo", max_evaluations=4, seed=5)
+        algorithm = NanobotBBOAlgorithm(
+            engine=MockAgentEngine(seed=23),
+            run_dir=tmp_path / "agent_run",
+            tool_mode="workspace_json",
+            web_search_provider="search_r1",
+            search_r1_base_url=f"http://127.0.0.1:{server.server_port}",
+        )
+        algorithm.setup(task.spec, seed=5, task_description=task.get_description())
+        artifacts = algorithm.artifact_paths
+        workspace = Path(artifacts["agent_workspace"])
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(artifacts["agent_workspace_tool_py"]),
+                "web_search",
+                json.dumps({"query": "branin optimization prior", "limit": 2}),
+            ],
+            cwd=workspace,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5.0)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["ok"] is True
+    assert payload["result"]["results"][0]["title"] == "Workspace prior"
+    assert WorkspaceSearchR1MockHandler.requests == [
+        {
+            "path": "/retrieve",
+            "payload": {"queries": ["branin optimization prior"], "topk": 2, "return_scores": True},
+        }
+    ]
+    source_records = Path(artifacts["agent_sources_jsonl"]).read_text(encoding="utf-8").strip().splitlines()
+    assert json.loads(source_records[0])["kind"] == "search_result"
 
 
 def test_workspace_python_api_and_gp_example_run_in_workspace(tmp_path: Path) -> None:
