@@ -148,7 +148,10 @@ def test_nanobot_bbo_algorithm_with_mock_engine_writes_artifacts(tmp_path: Path)
     assert Path(artifacts["agent_manifest_json"]).exists()
     assert Path(artifacts["agent_tool_specs_json"]).exists()
     assert Path(artifacts["agent_workspace_tool_py"]).exists()
+    assert Path(artifacts["agent_workspace_bbo_tools_py"]).exists()
     assert Path(artifacts["agent_workspace_tool_config_json"]).exists()
+    assert Path(artifacts["agent_workspace_gp_example_py"]).exists()
+    assert Path(artifacts["agent_workspace_python_environment_md"]).exists()
     assert Path(artifacts["agent_tool_calls_jsonl"]).exists()
     assert Path(artifacts["agent_memory_jsonl"]).parent.exists()
     assert (Path(artifacts["agent_workspace"]) / "instructions.md").exists()
@@ -174,6 +177,7 @@ def test_workspace_tool_bridge_calls_every_advertised_tool(tmp_path: Path) -> No
     workspace = Path(artifacts["agent_workspace"])
     tool_script = Path(artifacts["agent_workspace_tool_py"])
     assert "from bbo." not in tool_script.read_text(encoding="utf-8")
+    assert "from bbo." not in Path(artifacts["agent_workspace_bbo_tools_py"]).read_text(encoding="utf-8")
     calls = {
         "get_task_context": {"max_chars_per_section": 500},
         "get_search_space": {},
@@ -220,6 +224,72 @@ def test_workspace_tool_bridge_calls_every_advertised_tool(tmp_path: Path) -> No
     ]
     assert {record["tool_name"] for record in records} >= set(calls)
     assert all(record["success"] is True for record in records)
+
+
+def test_workspace_python_api_and_gp_example_run_in_workspace(tmp_path: Path) -> None:
+    task = create_task("branin_demo", max_evaluations=4, seed=5)
+    algorithm = NanobotBBOAlgorithm(
+        engine=MockAgentEngine(seed=23),
+        run_dir=tmp_path / "agent_run",
+        tool_mode="workspace_json",
+        code_backend="mock",
+        web_search_provider="mock",
+    )
+    algorithm.setup(task.spec, seed=5, task_description=task.get_description())
+    artifacts = algorithm.artifact_paths
+    workspace = Path(artifacts["agent_workspace"])
+
+    api_probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json; "
+                "from bbo_tools import BBO; "
+                "bbo = BBO(); "
+                "payload = {"
+                "'dimension': bbo.search_space()['dimension'], "
+                "'history_total': bbo.history(mode='all')['total'], "
+                "'valid_count': bbo.validate([{'config': {'x1': 0.0, 'x2': 0.0}}])['valid_count'], "
+                "'code_backend': bbo.code_interpreter('print(1)')['backend'], "
+                "'search_enabled': bbo.web_search('branin optimization', limit=1)['enabled']"
+                "}; "
+                "print(json.dumps(payload, sort_keys=True))"
+            ),
+        ],
+        cwd=workspace,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert api_probe.returncode == 0, api_probe.stderr
+    api_payload = json.loads(api_probe.stdout)
+    assert api_payload["dimension"] == 2
+    assert api_payload["valid_count"] == 1
+    assert api_payload["code_backend"] == "mock"
+    assert api_payload["search_enabled"] is True
+
+    gp_probe = subprocess.run(
+        [sys.executable, str(Path(artifacts["agent_workspace_gp_example_py"]))],
+        cwd=workspace,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert gp_probe.returncode == 0, gp_probe.stderr
+    gp_payload = json.loads(gp_probe.stdout)
+    assert set(gp_payload) == {"candidates"}
+    assert 1 <= len(gp_payload["candidates"]) <= 4
+    for item in gp_payload["candidates"]:
+        task.spec.search_space.validate_config(item["config"])
+
+    records = [
+        json.loads(line)
+        for line in Path(artifacts["agent_tool_calls_jsonl"]).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(record["interface"] == "workspace_python_api" for record in records)
+    assert any(record["tool_name"] == "validate_candidates" for record in records)
 
 
 def test_general_agent_replay_resume_extends_history(tmp_path: Path) -> None:

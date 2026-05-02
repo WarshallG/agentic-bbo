@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None, *, default_config_path: str | None = Non
     except Exception as exc:
         payload = {"ok": False, "error": "exception", "message": str(exc)}
         success = False
-    _log_call(config, args.tool_name, args.arguments, payload, started, timestamp, success)
+    _log_call(config, args.tool_name, args.arguments, payload, started, timestamp, success, interface="workspace_cli")
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     return 0 if success else 2
 
@@ -444,6 +444,8 @@ def _log_call(
     started: float,
     timestamp: float,
     success: bool,
+    *,
+    interface: str,
 ) -> None:
     path = Path(config["tool_calls_path"])
     try:
@@ -461,7 +463,7 @@ def _log_call(
             "success": success,
             "duration_ms": round((time.monotonic() - started) * 1000.0, 3),
             "result_preview": _truncate(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str), 1200),
-            "interface": "workspace_cli",
+            "interface": interface,
         },
     )
 
