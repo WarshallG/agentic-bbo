@@ -9,7 +9,7 @@ from bbo.algorithms import ALGORITHM_REGISTRY
 from bbo.algorithms.agentic import (
     GeneralAgentValidationError,
     MockAgentEngine,
-    NanobotBboAlgorithm,
+    NanobotBBOAlgorithm,
     parse_agent_candidate_payload,
 )
 from bbo.core import ExperimentConfig, Experimenter, JsonlMetricLogger
@@ -26,11 +26,16 @@ def test_general_agent_algorithms_are_registered_and_cli_visible() -> None:
     assert "agentic_claude_code" in ALGORITHM_REGISTRY
     assert "claude_code" in ALGORITHM_REGISTRY
     assert "claude-code" in ALGORITHM_REGISTRY
+    assert "agentic_openai_compatible" in ALGORITHM_REGISTRY
+    assert "openai_compatible_agent" in ALGORITHM_REGISTRY
     assert ALGORITHM_REGISTRY["nanobot"].family == "agentic"
     assert ALGORITHM_REGISTRY["claude_code"].family == "agentic"
+    assert ALGORITHM_REGISTRY["agentic_openai_compatible"].family == "agentic"
     assert "nanobot" in algorithm_action.choices
     assert "claude_code" in algorithm_action.choices
+    assert "agentic_openai_compatible" in algorithm_action.choices
     assert parser.parse_args(["--algorithm", "claude-code"]).algorithm == "claude-code"
+    assert parser.parse_args(["--algorithm", "agentic_openai_compatible"]).agent_tool_mode == "function_calling"
 
 
 def test_parse_agent_candidate_payload_accepts_config_wrappers() -> None:
@@ -115,7 +120,7 @@ def test_parse_agent_candidate_payload_rejects_markdown_and_invalid_configs() ->
 
 def test_nanobot_bbo_algorithm_with_mock_engine_writes_artifacts(tmp_path: Path) -> None:
     task = create_task("branin_demo", max_evaluations=4, seed=3)
-    algorithm = NanobotBboAlgorithm(
+    algorithm = NanobotBBOAlgorithm(
         engine=MockAgentEngine(seed=11),
         run_dir=tmp_path / "agent_run",
         timeout_seconds=5.0,
@@ -136,7 +141,14 @@ def test_nanobot_bbo_algorithm_with_mock_engine_writes_artifacts(tmp_path: Path)
     assert Path(artifacts["agent_workspace"]).exists()
     assert Path(artifacts["agent_calls_jsonl"]).exists()
     assert Path(artifacts["agent_state_json"]).exists()
+    assert Path(artifacts["agent_manifest_json"]).exists()
+    assert Path(artifacts["agent_tool_specs_json"]).exists()
+    assert Path(artifacts["agent_tool_calls_jsonl"]).exists()
+    assert Path(artifacts["agent_memory_jsonl"]).parent.exists()
     assert (Path(artifacts["agent_workspace"]) / "instructions.md").exists()
+    assert (Path(artifacts["agent_workspace"]) / "manifest.json").exists()
+    assert (Path(artifacts["agent_workspace"]) / "tool_specs.json").exists()
+    assert Path(artifacts["agent_tool_calls_jsonl"]).read_text(encoding="utf-8").strip()
     records = logger.load_records()
     assert records[0].suggestion_metadata["agent_framework"] == "nanobot"
     assert records[0].suggestion_metadata["agent_engine"] == "mock"
@@ -147,7 +159,7 @@ def test_general_agent_replay_resume_extends_history(tmp_path: Path) -> None:
     results_path = tmp_path / "trials.jsonl"
 
     first_task = create_task("branin_demo", max_evaluations=2, seed=4)
-    first_algorithm = NanobotBboAlgorithm(engine=MockAgentEngine(seed=17), run_dir=run_dir, resume=False)
+    first_algorithm = NanobotBBOAlgorithm(engine=MockAgentEngine(seed=17), run_dir=run_dir, resume=False)
     first_logger = JsonlMetricLogger(results_path)
     Experimenter(
         task=first_task,
@@ -157,7 +169,7 @@ def test_general_agent_replay_resume_extends_history(tmp_path: Path) -> None:
     ).run()
 
     second_task = create_task("branin_demo", max_evaluations=3, seed=4)
-    second_algorithm = NanobotBboAlgorithm(engine=MockAgentEngine(seed=17), run_dir=run_dir, resume=True)
+    second_algorithm = NanobotBBOAlgorithm(engine=MockAgentEngine(seed=17), run_dir=run_dir, resume=True)
     second_logger = JsonlMetricLogger(results_path)
     summary = Experimenter(
         task=second_task,

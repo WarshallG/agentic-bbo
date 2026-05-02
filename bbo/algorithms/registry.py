@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ..core.algo import Algorithm
-from .agentic import ClaudeCodeBboAlgorithm, NanobotBboAlgorithm, PabloAlgorithm
+from .agentic import ClaudeCodeBBOAlgorithm, NanobotBBOAlgorithm, OpenAICompatibleBBOAlgorithm, PabloAlgorithm
 from .llm_based import LlamboAlgorithm, OproAlgorithm
 from .llm_based.skydiscover_interleaved import SkydiscoverInterleavedAlgorithm
 from .model_based import CustomPfnsBoAlgorithm, OptunaTpeAlgorithm, Pfns4BoAlgorithm, TabPfnV2BoAlgorithm
@@ -104,28 +104,38 @@ ALGORITHM_REGISTRY: dict[str, AlgorithmSpec] = {
         family="agentic",
     ),
     "agentic_nanobot": AlgorithmSpec(
-        factory=NanobotBboAlgorithm,
+        factory=NanobotBBOAlgorithm,
         description="General-agent BBO optimizer backed by the Nanobot CLI agent.",
         family="agentic",
     ),
     "nanobot": AlgorithmSpec(
-        factory=NanobotBboAlgorithm,
+        factory=NanobotBBOAlgorithm,
         description="Alias for agentic_nanobot.",
         family="agentic",
     ),
     "agentic_claude_code": AlgorithmSpec(
-        factory=ClaudeCodeBboAlgorithm,
+        factory=ClaudeCodeBBOAlgorithm,
         description="General-agent BBO optimizer backed by Claude Code.",
         family="agentic",
     ),
     "claude_code": AlgorithmSpec(
-        factory=ClaudeCodeBboAlgorithm,
+        factory=ClaudeCodeBBOAlgorithm,
         description="Alias for agentic_claude_code.",
         family="agentic",
     ),
     "claude-code": AlgorithmSpec(
-        factory=ClaudeCodeBboAlgorithm,
+        factory=ClaudeCodeBBOAlgorithm,
         description="Alias for agentic_claude_code.",
+        family="agentic",
+    ),
+    "agentic_openai_compatible": AlgorithmSpec(
+        factory=OpenAICompatibleBBOAlgorithm,
+        description="General-agent BBO optimizer backed by OpenAI-compatible function calling.",
+        family="agentic",
+    ),
+    "openai_compatible_agent": AlgorithmSpec(
+        factory=OpenAICompatibleBBOAlgorithm,
+        description="Alias for agentic_openai_compatible.",
         family="agentic",
     ),
 }

@@ -20,6 +20,7 @@ from ...core import (
     IntParam,
     ObjectiveDirection,
     SearchSpace,
+    load_BBO_manifest,
     TaskDescriptionBundle,
     TaskSpec,
     TrialObservation,
@@ -34,6 +35,21 @@ from .general_agent_engines import (
     normalize_agent_framework,
 )
 from .serialization import append_jsonl, dump_json, stable_config_identity, to_jsonable
+from .tools import (
+    BBOMemoryStore,
+    BBOToolCallLogger,
+    BBOToolContext,
+    BBOToolRegistry,
+    BBOWebSourceLogger,
+    CodeInterpreterTool,
+    DisabledBBOCodeBackend,
+    FetchURLTool,
+    MockBBOCodeBackend,
+    SandboxFusionBBOCodeBackend,
+    WebSearchTool,
+    create_BBO_web_search_provider,
+    create_core_BBO_tools,
+)
 from .validation import PabloValidationError, parse_json_object
 
 
@@ -82,9 +98,17 @@ class GeneralAgentConfig:
     initial_random: int = 0
     run_dir: Path | None = None
     resume: bool = False
+    tool_mode: str = "function_calling"
+    max_tool_calls: int = 16
+    enable_memory: bool = True
+    enable_code_interpreter: bool = True
+    code_backend: str = "sandboxfusion"
+    sandbox_fusion_base_url: str | None = None
+    web_search_provider: str = "disabled"
+    web_search_api_key_env: str | None = None
 
 
-class GeneralAgentBboAlgorithm(Algorithm):
+class GeneralAgentBBOAlgorithm(Algorithm):
     """Ask/tell wrapper that lets an external general agent propose configs."""
 
     def __init__(
@@ -104,6 +128,14 @@ class GeneralAgentBboAlgorithm(Algorithm):
         initial_random: int = 0,
         run_dir: Path | str | None = None,
         resume: bool = False,
+        tool_mode: str = "function_calling",
+        max_tool_calls: int = 16,
+        enable_memory: bool = True,
+        enable_code_interpreter: bool = True,
+        code_backend: str = "sandboxfusion",
+        sandbox_fusion_base_url: str | None = None,
+        web_search_provider: str = "disabled",
+        web_search_api_key_env: str | None = None,
     ) -> None:
         normalized = normalize_agent_framework(framework)
         if timeout_seconds <= 0:
@@ -116,6 +148,11 @@ class GeneralAgentBboAlgorithm(Algorithm):
             raise ValueError("candidates_per_call must be positive.")
         if initial_random < 0:
             raise ValueError("initial_random must be non-negative.")
+        normalized_tool_mode = tool_mode.strip().lower().replace("-", "_")
+        if normalized_tool_mode not in {"function_calling", "workspace_json"}:
+            raise ValueError("tool_mode must be `function_calling` or `workspace_json`.")
+        if max_tool_calls < 0:
+            raise ValueError("max_tool_calls must be non-negative.")
 
         self.config = GeneralAgentConfig(
             framework=normalized,
@@ -131,6 +168,14 @@ class GeneralAgentBboAlgorithm(Algorithm):
             initial_random=int(initial_random),
             run_dir=None if run_dir is None else Path(run_dir),
             resume=bool(resume),
+            tool_mode=normalized_tool_mode,
+            max_tool_calls=int(max_tool_calls),
+            enable_memory=bool(enable_memory),
+            enable_code_interpreter=bool(enable_code_interpreter),
+            code_backend=code_backend,
+            sandbox_fusion_base_url=sandbox_fusion_base_url,
+            web_search_provider=web_search_provider,
+            web_search_api_key_env=web_search_api_key_env,
         )
         self._engine = engine or create_general_agent_engine(normalized)
         self._task_spec: TaskSpec | None = None
@@ -148,7 +193,11 @@ class GeneralAgentBboAlgorithm(Algorithm):
         self._run_dir: Path | None = None
         self._workspace_dir: Path | None = None
         self._state_dir: Path | None = None
+        self._memory_dir: Path | None = None
         self._work_copy: AgentWorkCopy | None = None
+        self._manifest = None
+        self._memory_store: BBOMemoryStore | None = None
+        self._tool_registry: BBOToolRegistry | None = None
         self._artifacts: dict[str, str] = {}
         self._loaded_resume_snapshot: dict[str, Any] = {}
 
@@ -175,10 +224,19 @@ class GeneralAgentBboAlgorithm(Algorithm):
         self._run_dir = Path(kwargs.get("run_dir") or self.config.run_dir or Path.cwd()).resolve()
         self._workspace_dir = self._run_dir / "agent_workspace"
         self._state_dir = self._run_dir / "agent_state"
+        self._memory_dir = self._run_dir / "agent_memory"
         log_dir = self._run_dir / "agent_llm_logs"
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
         self._state_dir.mkdir(parents=True, exist_ok=True)
+        self._memory_dir.mkdir(parents=True, exist_ok=True)
         log_dir.mkdir(parents=True, exist_ok=True)
+        self._manifest = load_BBO_manifest(task_spec)
+        self._memory_store = (
+            BBOMemoryStore(self._agent_memory_path, self._agent_memory_summary_path)
+            if self.config.enable_memory
+            else None
+        )
+        self._tool_registry = self._build_tool_registry()
 
         config_path = self._build_framework_config(log_dir)
         self._work_copy = AgentWorkCopy(
@@ -189,6 +247,7 @@ class GeneralAgentBboAlgorithm(Algorithm):
             extra={
                 "nanobot_config": {"env": self._agent_env()},
                 "claude_config": self._claude_config(),
+                "openai_compatible_config": self._openai_compatible_config(),
                 "log_dir": log_dir,
             },
         )
@@ -201,10 +260,18 @@ class GeneralAgentBboAlgorithm(Algorithm):
             "agent_history_jsonl": str(self._workspace_dir / "history.jsonl"),
             "agent_space_json": str(self._workspace_dir / "space.json"),
             "agent_task_md": str(self._workspace_dir / "task.md"),
+            "agent_manifest_json": str(self._workspace_dir / "manifest.json"),
+            "agent_tool_specs_json": str(self._agent_tool_specs_path),
+            "agent_tool_calls_jsonl": str(self._agent_tool_calls_path),
+            "agent_sources_jsonl": str(self._agent_sources_path),
+            "agent_memory_jsonl": str(self._agent_memory_path),
+            "agent_memory_summary_json": str(self._agent_memory_summary_path),
         }
-        for path in (self._agent_calls_path, self._agent_prompts_path):
+        for path in (self._agent_calls_path, self._agent_prompts_path, self._agent_tool_calls_path, self._agent_sources_path):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch(exist_ok=True)
+        if self._tool_registry is not None:
+            dump_json(self._agent_tool_specs_path, {"tools": self._tool_registry.get_tool_specs()})
 
         self._history = []
         self._queue = []
@@ -293,7 +360,7 @@ class GeneralAgentBboAlgorithm(Algorithm):
                     "timestamp": time.time(),
                 },
             )
-            result = self._run_engine(prompt)
+            result = self._run_engine(prompt, call_id=call_id)
             call_record = {
                 "call_id": call_id,
                 "attempt_index": attempt_index,
@@ -345,17 +412,88 @@ class GeneralAgentBboAlgorithm(Algorithm):
             return
         raise RuntimeError(f"{self.name} failed to produce a valid candidate after retries: {last_error}")
 
-    def _run_engine(self, prompt: str) -> AgentResult:
+    def _run_engine(self, prompt: str, *, call_id: str) -> AgentResult:
         self._require_ready()
         assert self._work_copy is not None
+        tools = None
+        tool_executor = None
+        if self.config.tool_mode == "function_calling":
+            registry = self._require_tool_registry()
+            context = self._build_tool_context()
+            tools = registry.get_tool_specs()
+
+            async def _execute_tool(tool_name: str, arguments: dict[str, Any], tool_call_id: str | None = None) -> str:
+                return await registry.execute_tool(
+                    tool_name,
+                    arguments,
+                    context,
+                    call_id=call_id,
+                    tool_call_id=tool_call_id,
+                )
+
+            tool_executor = _execute_tool
         coro = self._engine.run_agent(
             "",
             prompt,
             self._work_copy,
             agent_id="bbo",
             timeout=self.config.timeout_seconds,
+            tools=tools,
+            tool_executor=tool_executor,
+            max_tool_calls=self.config.max_tool_calls,
         )
         return _run_coro_sync(coro)
+
+    def _build_tool_registry(self) -> BBOToolRegistry:
+        tools = create_core_BBO_tools(enable_memory=self.config.enable_memory)
+        if self.config.enable_code_interpreter:
+            tools.append(CodeInterpreterTool())
+        tools.extend([WebSearchTool(), FetchURLTool()])
+        return BBOToolRegistry(tools, logger=BBOToolCallLogger(self._agent_tool_calls_path))
+
+    def _build_tool_context(self) -> BBOToolContext:
+        self._require_ready()
+        assert self._workspace_dir is not None
+        assert self._state_dir is not None
+        assert self._manifest is not None
+        return BBOToolContext(
+            task_spec=self._require_task_spec(),
+            description=self._description,
+            manifest=self._manifest,
+            workspace_dir=self._workspace_dir,
+            state_dir=self._state_dir,
+            history=self._history,
+            incumbent=self._best,
+            memory_store=self._memory_store,
+            code_backend=self._build_code_backend(),
+            web_search_provider=self._build_web_search_provider(),
+            source_logger=BBOWebSourceLogger(self._agent_sources_path),
+            seed=self._seed,
+        )
+
+    def _build_code_backend(self) -> object:
+        backend = self.config.code_backend.strip().lower().replace("-", "_")
+        if backend == "mock":
+            return MockBBOCodeBackend()
+        if backend in {"disabled", "local_disabled", "none"}:
+            return DisabledBBOCodeBackend()
+        if backend == "sandboxfusion":
+            base_url = self.config.sandbox_fusion_base_url or os.environ.get("SANDBOX_FUSION_BASE_URL")
+            if not base_url:
+                return DisabledBBOCodeBackend()
+            return SandboxFusionBBOCodeBackend(base_url=base_url)
+        raise ValueError(f"Unknown BBO code backend `{self.config.code_backend}`.")
+
+    def _build_web_search_provider(self) -> object:
+        return create_BBO_web_search_provider(
+            self.config.web_search_provider,
+            api_key_env=self.config.web_search_api_key_env,
+        )
+
+    def _require_tool_registry(self) -> BBOToolRegistry:
+        if self._tool_registry is None:
+            raise RuntimeError("BBO tool registry is not initialized.")
+        return self._tool_registry
 
     def _enqueue_candidates(self, call_id: str, candidates: list[ParsedAgentCandidate]) -> int:
         accepted = 0
@@ -422,6 +560,10 @@ class GeneralAgentBboAlgorithm(Algorithm):
         history = self._history[-self.config.history_limit :] if self.config.history_limit else []
         (self._workspace_dir / "task.md").write_text(self._render_task_markdown(), encoding="utf-8")
         dump_json(self._workspace_dir / "space.json", {"parameters": search_space_schema(task_spec.search_space)})
+        if self._manifest is not None:
+            dump_json(self._workspace_dir / "manifest.json", self._manifest.to_dict())
+        if self._tool_registry is not None:
+            dump_json(self._workspace_dir / "tool_specs.json", {"tools": self._tool_registry.get_tool_specs()})
         dump_json(
             self._workspace_dir / "objective.json",
             {
@@ -468,10 +610,12 @@ class GeneralAgentBboAlgorithm(Algorithm):
 
             Files in this workspace:
             - task.md: task background, goal, constraints, and prior knowledge.
+            - manifest.json: agent benchmark construction, tool policy, and provenance.
             - space.json: exact parameter schema. Every candidate must include every parameter exactly once.
             - objective.json: primary objective name and optimization direction.
             - history.jsonl: recent evaluated trials.
             - incumbent.json: current best known configuration, if any.
+            - tool_specs.json: available BBO function-calling tools when the backend supports tools.
 
             Task: {task_spec.name}
             Primary objective: {task_spec.primary_objective.name}
@@ -482,6 +626,7 @@ class GeneralAgentBboAlgorithm(Algorithm):
 
             Requirements:
             - Return {self.config.candidates_per_call} candidate configurations when possible.
+            - Use BBO tools for task context, history, memory, validation, code analysis, or web research when available.
             - Do not include markdown fences, comments, prose, or partial configurations.
             - Float and integer values must stay within their declared bounds.
             - Categorical values must be one of the declared choices.
@@ -498,8 +643,9 @@ class GeneralAgentBboAlgorithm(Algorithm):
             Call id: {call_id}
             Attempt: {attempt_index}
 
-            Read `instructions.md`, `task.md`, `space.json`, `objective.json`,
-            `history.jsonl`, and `incumbent.json` in the workspace.
+            Read `instructions.md`, `task.md`, `manifest.json`, `space.json`,
+            `objective.json`, `history.jsonl`, `incumbent.json`, and `tool_specs.json`
+            in the workspace.
 
             Current best primary objective: {best_score}
             Objective direction: {task_spec.primary_objective.direction.value}
@@ -570,6 +716,13 @@ class GeneralAgentBboAlgorithm(Algorithm):
             elif provider == "anthropic":
                 env["ANTHROPIC_BASE_URL"] = self.config.api_base
         return env
+
+    def _openai_compatible_config(self) -> dict[str, Any]:
+        return {
+            "api_key": self._api_key(),
+            "api_base": self.config.api_base,
+            "model": self.config.model,
+        }
 
     def _claude_config(self) -> dict[str, Any]:
         provider = (self.config.provider or "").lower()
@@ -651,6 +804,11 @@ class GeneralAgentBboAlgorithm(Algorithm):
                 "best_score": None if self._best is None else self._best.score,
                 "model": self.config.model,
                 "provider": self.config.provider,
+                "tool_mode": self.config.tool_mode,
+                "max_tool_calls": self.config.max_tool_calls,
+                "enable_memory": self.config.enable_memory,
+                "web_search_provider": self.config.web_search_provider,
+                "code_backend": self.config.code_backend,
             },
         )
 
@@ -669,6 +827,31 @@ class GeneralAgentBboAlgorithm(Algorithm):
         assert self._run_dir is not None
         return self._run_dir / "agent_state.json"
 
+    @property
+    def _agent_tool_calls_path(self) -> Path:
+        assert self._run_dir is not None
+        return self._run_dir / "agent_tool_calls.jsonl"
+
+    @property
+    def _agent_tool_specs_path(self) -> Path:
+        assert self._run_dir is not None
+        return self._run_dir / "agent_tool_specs.json"
+
+    @property
+    def _agent_sources_path(self) -> Path:
+        assert self._run_dir is not None
+        return self._run_dir / "agent_web_sources.jsonl"
+
+    @property
+    def _agent_memory_path(self) -> Path:
+        assert self._memory_dir is not None
+        return self._memory_dir / "memory.jsonl"
+
+    @property
+    def _agent_memory_summary_path(self) -> Path:
+        assert self._memory_dir is not None
+        return self._memory_dir / "memory_summary.json"
+
     def _require_ready(self) -> None:
         if self._task_spec is None or self._search_space is None:
             raise RuntimeError(f"{self.__class__.__name__}.setup() must be called before use.")
@@ -684,18 +867,25 @@ class GeneralAgentBboAlgorithm(Algorithm):
         return self._search_space
 
 
-class NanobotBboAlgorithm(GeneralAgentBboAlgorithm):
+class NanobotBBOAlgorithm(GeneralAgentBBOAlgorithm):
     """General-agent optimizer backed by Nanobot."""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(framework="nanobot", algorithm_name="agentic_nanobot", **kwargs)
 
 
-class ClaudeCodeBboAlgorithm(GeneralAgentBboAlgorithm):
+class ClaudeCodeBBOAlgorithm(GeneralAgentBBOAlgorithm):
     """General-agent optimizer backed by Claude Code."""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(framework="claude_code", algorithm_name="agentic_claude_code", **kwargs)
+
+
+class OpenAICompatibleBBOAlgorithm(GeneralAgentBBOAlgorithm):
+    """General-agent optimizer backed by OpenAI-compatible function calling."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(framework="openai_compatible", algorithm_name="agentic_openai_compatible", **kwargs)
 
 
 def parse_agent_candidate_payload(raw_text: str, search_space: SearchSpace) -> list[ParsedAgentCandidate]:
@@ -940,11 +1130,12 @@ def _nanobot_provider_key(provider: str) -> str:
 
 
 __all__ = [
-    "ClaudeCodeBboAlgorithm",
-    "GeneralAgentBboAlgorithm",
+    "ClaudeCodeBBOAlgorithm",
+    "GeneralAgentBBOAlgorithm",
     "GeneralAgentConfig",
     "GeneralAgentValidationError",
-    "NanobotBboAlgorithm",
+    "NanobotBBOAlgorithm",
+    "OpenAICompatibleBBOAlgorithm",
     "parse_agent_candidate_payload",
     "search_space_schema",
 ]

@@ -9,7 +9,10 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal
+
+
+BBOToolExecutor = Callable[[str, dict[str, Any], str | None], Awaitable[str]]
 
 
 @dataclass
@@ -53,6 +56,9 @@ class GeneralAgentEngine(ABC):
         agent_id: str | None = None,
         timeout: float | None = None,
         extra_env: dict[str, str] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_executor: BBOToolExecutor | None = None,
+        max_tool_calls: int = 0,
     ) -> AgentResult:
         """Execute a single agent call."""
 
@@ -73,7 +79,18 @@ class NanobotEngine(GeneralAgentEngine):
         agent_id: str | None = None,
         timeout: float | None = None,
         extra_env: dict[str, str] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_executor: BBOToolExecutor | None = None,
+        max_tool_calls: int = 0,
     ) -> AgentResult:
+        del tool_executor, max_tool_calls
+        if tools:
+            return AgentResult(
+                status="failed",
+                answer="",
+                error="NanobotEngine does not support injected BBO function-calling tools in this runtime.",
+                returncode=-2,
+            )
         cfg = work_copy.extra.get("nanobot_config", {})
         workspace_path = _resolve_workspace(work_copy, agent_id or "")
         cmd = [sys.executable, "-m", "bbo.algorithms.agentic.nanobot_runner", "agent", "-m", message, "--no-markdown"]
@@ -137,7 +154,18 @@ class ClaudeCodeEngine(GeneralAgentEngine):
         agent_id: str | None = None,
         timeout: float | None = None,
         extra_env: dict[str, str] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_executor: BBOToolExecutor | None = None,
+        max_tool_calls: int = 0,
     ) -> AgentResult:
+        del tool_executor, max_tool_calls
+        if tools:
+            return AgentResult(
+                status="failed",
+                answer="",
+                error="ClaudeCodeEngine does not support injected BBO function-calling tools in this runtime.",
+                returncode=-2,
+            )
         try:
             from claude_agent_sdk import (  # type: ignore
                 AssistantMessage,
@@ -232,6 +260,107 @@ class ClaudeCodeEngine(GeneralAgentEngine):
             return AgentResult(status="failed", answer="", error=detail)
 
 
+class OpenAICompatibleToolEngine(GeneralAgentEngine):
+    """OpenAI-compatible chat-completions engine with BBO function-calling support."""
+
+    @property
+    def name(self) -> str:
+        return "openai_compatible"
+
+    async def run_agent(
+        self,
+        session_id: str,
+        message: str,
+        work_copy: AgentWorkCopy,
+        *,
+        agent_id: str | None = None,
+        timeout: float | None = None,
+        extra_env: dict[str, str] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_executor: BBOToolExecutor | None = None,
+        max_tool_calls: int = 0,
+    ) -> AgentResult:
+        del session_id, agent_id, extra_env
+        try:
+            from openai import AsyncOpenAI
+        except ImportError as exc:  # pragma: no cover - optional dependency.
+            return AgentResult(
+                status="failed",
+                answer="",
+                error="OpenAI-compatible BBO engine requires the optional `pablo` extra (`openai>=1.0`).",
+                raw=exc,
+            )
+        cfg = work_copy.extra.get("openai_compatible_config", {})
+        api_key = cfg.get("api_key") or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return AgentResult(status="failed", answer="", error="OpenAI-compatible BBO engine requires an API key.")
+        model = cfg.get("model") or "gpt-4.1-mini"
+        client = AsyncOpenAI(api_key=api_key, base_url=cfg.get("api_base"))
+        messages: list[dict[str, Any]] = [{"role": "user", "content": message}]
+        tool_calls_used = 0
+
+        async def _query_once() -> AgentResult:
+            nonlocal tool_calls_used
+            while True:
+                kwargs: dict[str, Any] = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.2,
+                }
+                if tools:
+                    kwargs["tools"] = tools
+                    kwargs["tool_choice"] = "auto"
+                try:
+                    response = await client.chat.completions.create(response_format={"type": "json_object"}, **kwargs)
+                except TypeError:
+                    response = await client.chat.completions.create(**kwargs)
+                msg = response.choices[0].message
+                tool_calls = list(getattr(msg, "tool_calls", None) or [])
+                content = getattr(msg, "content", None) or ""
+                if not tool_calls:
+                    return AgentResult(status="success", answer=str(content), raw=response)
+                if tool_executor is None:
+                    return AgentResult(status="failed", answer=str(content), error="Model requested tools but no BBO tool executor was provided.")
+                if tool_calls_used >= max_tool_calls:
+                    return AgentResult(status="failed", answer=str(content), error=f"Exceeded max BBO tool calls ({max_tool_calls}).")
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": content,
+                        "tool_calls": [
+                            {
+                                "id": call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": call.function.name,
+                                    "arguments": call.function.arguments,
+                                },
+                            }
+                            for call in tool_calls
+                        ],
+                    }
+                )
+                for call in tool_calls:
+                    if tool_calls_used >= max_tool_calls:
+                        break
+                    try:
+                        arguments = json.loads(call.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        arguments = {}
+                    result = await tool_executor(call.function.name, arguments, call.id)
+                    tool_calls_used += 1
+                    messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+
+        try:
+            if timeout is None:
+                return await _query_once()
+            return await asyncio.wait_for(_query_once(), timeout=timeout)
+        except (asyncio.TimeoutError, TimeoutError):
+            return AgentResult(status="timeout", answer="", error=f"Timeout after {timeout}s", returncode=-1)
+        except Exception as exc:  # pragma: no cover - provider-specific failures.
+            return AgentResult(status="failed", answer="", error=str(exc))
+
+
 class MockAgentEngine(GeneralAgentEngine):
     """Deterministic local agent used by tests and offline examples."""
 
@@ -252,9 +381,30 @@ class MockAgentEngine(GeneralAgentEngine):
         agent_id: str | None = None,
         timeout: float | None = None,
         extra_env: dict[str, str] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_executor: BBOToolExecutor | None = None,
+        max_tool_calls: int = 0,
     ) -> AgentResult:
-        del session_id, message, agent_id, timeout, extra_env
+        del session_id, message, agent_id, timeout, extra_env, max_tool_calls
         import json
+
+        if tools and tool_executor is not None:
+            sample_raw = await tool_executor(
+                "sample_candidates",
+                {"n": 4, "seed": self.seed + self.calls, "strategy": "random"},
+                "mock_sample_candidates",
+            )
+            self.calls += 1
+            try:
+                sample_payload = json.loads(sample_raw)
+                candidates = [
+                    {"config": item["config"], "rationale": "mock tool sample"}
+                    for item in sample_payload["result"]["candidates"]
+                ]
+            except Exception:
+                candidates = []
+            if candidates:
+                return AgentResult(status="success", answer=json.dumps({"candidates": candidates}, sort_keys=True))
 
         space_path = (work_copy.workspace_root or work_copy.project_root) / "space.json"
         payload = json.loads(space_path.read_text(encoding="utf-8"))
@@ -282,6 +432,8 @@ def create_general_agent_engine(framework: str) -> GeneralAgentEngine:
         return NanobotEngine()
     if normalized == "claude_code":
         return ClaudeCodeEngine()
+    if normalized == "openai_compatible":
+        return OpenAICompatibleToolEngine()
     if normalized == "mock":
         return MockAgentEngine()
     raise ValueError(f"Unknown general-agent framework `{framework}`.")
@@ -293,6 +445,8 @@ def normalize_agent_framework(framework: str) -> str:
         return "claude_code"
     if normalized in {"nanobot", "nano_bot"}:
         return "nanobot"
+    if normalized in {"openai", "openai_compatible", "openai_compat"}:
+        return "openai_compatible"
     if normalized == "mock":
         return "mock"
     return normalized
@@ -371,6 +525,7 @@ __all__ = [
     "GeneralAgentEngine",
     "MockAgentEngine",
     "NanobotEngine",
+    "OpenAICompatibleToolEngine",
     "create_general_agent_engine",
     "normalize_agent_framework",
 ]

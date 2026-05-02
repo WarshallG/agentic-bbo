@@ -227,6 +227,14 @@ def run_single_experiment(
     agent_api_base: str | None = None,
     agent_api_key_env: str | None = None,
     agent_initial_random: int = 0,
+    agent_tool_mode: str = "function_calling",
+    agent_max_tool_calls: int = 16,
+    agent_enable_memory: bool = True,
+    agent_enable_code_interpreter: bool = True,
+    agent_code_backend: str = "sandboxfusion",
+    sandbox_fusion_base_url: str | None = None,
+    agent_web_search_provider: str = "disabled",
+    agent_web_search_api_key_env: str | None = None,
     skydiscover_interleave_every: int = 5,
     skydiscover_round_iterations: int = 3,
     skydiscover_config_path: str | Path | None = None,
@@ -300,7 +308,15 @@ def run_single_experiment(
             "run_dir": run_dir,
             "resume": resume,
         }
-    elif algorithm_name in {"agentic_nanobot", "nanobot", "agentic_claude_code", "claude_code", "claude-code"}:
+    elif algorithm_name in {
+        "agentic_nanobot",
+        "nanobot",
+        "agentic_claude_code",
+        "claude_code",
+        "claude-code",
+        "agentic_openai_compatible",
+        "openai_compatible_agent",
+    }:
         algorithm_kwargs = {
             "timeout_seconds": agent_timeout_seconds,
             "max_retries": agent_max_retries,
@@ -313,6 +329,14 @@ def run_single_experiment(
             "initial_random": agent_initial_random,
             "run_dir": run_dir,
             "resume": resume,
+            "tool_mode": agent_tool_mode,
+            "max_tool_calls": agent_max_tool_calls,
+            "enable_memory": agent_enable_memory,
+            "enable_code_interpreter": agent_enable_code_interpreter,
+            "code_backend": agent_code_backend,
+            "sandbox_fusion_base_url": sandbox_fusion_base_url,
+            "web_search_provider": agent_web_search_provider,
+            "web_search_api_key_env": agent_web_search_api_key_env,
         }
     elif algorithm_name == "llambo":
         algorithm_kwargs = _build_llambo_algorithm_kwargs(
@@ -729,6 +753,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-api-base", default=None)
     parser.add_argument("--agent-api-key-env", default=None)
     parser.add_argument("--agent-initial-random", type=int, default=0)
+    parser.add_argument("--agent-tool-mode", choices=["function_calling", "workspace_json"], default="function_calling")
+    parser.add_argument("--agent-max-tool-calls", type=int, default=16)
+    parser.add_argument("--agent-enable-memory", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--agent-enable-code-interpreter", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--agent-code-backend", choices=["sandboxfusion", "local_disabled", "mock"], default="sandboxfusion")
+    parser.add_argument("--sandbox-fusion-base-url", default=None)
+    parser.add_argument("--agent-web-search-provider", choices=["disabled", "mock", "tavily", "serpapi", "bing"], default="disabled")
+    parser.add_argument("--agent-web-search-api-key-env", default=None)
     parser.add_argument("--skydiscover-interleave-every", type=int, default=5)
     parser.add_argument("--skydiscover-round-iterations", type=int, default=3)
     parser.add_argument("--skydiscover-config", type=Path, default=None)
@@ -838,6 +870,14 @@ def main(argv: list[str] | None = None) -> int:
             agent_api_base=args.agent_api_base,
             agent_api_key_env=args.agent_api_key_env,
             agent_initial_random=args.agent_initial_random,
+            agent_tool_mode=args.agent_tool_mode,
+            agent_max_tool_calls=args.agent_max_tool_calls,
+            agent_enable_memory=args.agent_enable_memory,
+            agent_enable_code_interpreter=args.agent_enable_code_interpreter,
+            agent_code_backend=args.agent_code_backend,
+            sandbox_fusion_base_url=args.sandbox_fusion_base_url,
+            agent_web_search_provider=args.agent_web_search_provider,
+            agent_web_search_api_key_env=args.agent_web_search_api_key_env,
             skydiscover_interleave_every=args.skydiscover_interleave_every,
             skydiscover_round_iterations=args.skydiscover_round_iterations,
             skydiscover_config_path=args.skydiscover_config,

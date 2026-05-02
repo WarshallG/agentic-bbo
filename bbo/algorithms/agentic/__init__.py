@@ -7,11 +7,12 @@ from ..llm_based import (
     OpenAICompatibleLlamboBackend,
 )
 from .general_agent import (
-    ClaudeCodeBboAlgorithm,
-    GeneralAgentBboAlgorithm,
+    ClaudeCodeBBOAlgorithm,
+    GeneralAgentBBOAlgorithm,
     GeneralAgentConfig,
     GeneralAgentValidationError,
-    NanobotBboAlgorithm,
+    NanobotBBOAlgorithm,
+    OpenAICompatibleBBOAlgorithm,
     parse_agent_candidate_payload,
     search_space_schema,
 )
@@ -22,6 +23,7 @@ from .general_agent_engines import (
     GeneralAgentEngine,
     MockAgentEngine,
     NanobotEngine,
+    OpenAICompatibleToolEngine,
 )
 from .llm_client import PabloProviderConfig, create_llm_client
 from .model_routing import PabloModelRoutingConfig, build_routing_table, resolve_role_model
@@ -34,9 +36,9 @@ from .validation import PabloValidationError
 __all__ = [
     "AgentResult",
     "AgentWorkCopy",
-    "ClaudeCodeBboAlgorithm",
+    "ClaudeCodeBBOAlgorithm",
     "ClaudeCodeEngine",
-    "GeneralAgentBboAlgorithm",
+    "GeneralAgentBBOAlgorithm",
     "GeneralAgentConfig",
     "GeneralAgentEngine",
     "GeneralAgentValidationError",
@@ -45,10 +47,12 @@ __all__ = [
     "LlamboAlgorithm",
     "LlamboBackend",
     "MockAgentEngine",
-    "NanobotBboAlgorithm",
+    "NanobotBBOAlgorithm",
     "NanobotEngine",
     "OpenAICompatibleLlamboBackend",
+    "OpenAICompatibleBBOAlgorithm",
     "OpenAICompatibleOproBackend",
+    "OpenAICompatibleToolEngine",
     "OproAlgorithm",
     "OproBackend",
     "PabloAlgorithm",
