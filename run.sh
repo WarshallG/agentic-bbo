@@ -3,12 +3,16 @@ set -euo pipefail
 
 : "${NANOBOT_API_KEY:?Set NANOBOT_API_KEY before running this script.}"
 export SANDBOX_FUSION_BASE_URL="${SANDBOX_FUSION_BASE_URL:-http://localhost:3211}"
-export AGENT_WEB_SEARCH_PROVIDER="${AGENT_WEB_SEARCH_PROVIDER:-mock}"
+export AGENT_WEB_SEARCH_PROVIDER="${AGENT_WEB_SEARCH_PROVIDER:-search_r1}"
 export AGENT_WEB_SEARCH_API_KEY_ENV="${AGENT_WEB_SEARCH_API_KEY_ENV:-}"
+export AGENT_SEARCH_R1_BASE_URL="${AGENT_SEARCH_R1_BASE_URL:-http://127.0.0.1:8000}"
 
 WEB_SEARCH_ARGS=(--agent-web-search-provider "$AGENT_WEB_SEARCH_PROVIDER")
 if [ -n "$AGENT_WEB_SEARCH_API_KEY_ENV" ]; then
     WEB_SEARCH_ARGS+=(--agent-web-search-api-key-env "$AGENT_WEB_SEARCH_API_KEY_ENV")
+fi
+if [ "$AGENT_WEB_SEARCH_PROVIDER" = "search_r1" ]; then
+    WEB_SEARCH_ARGS+=(--agent-search-r1-base-url "$AGENT_SEARCH_R1_BASE_URL")
 fi
 
 uv run --extra nanobot python -m bbo.run \
