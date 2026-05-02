@@ -98,6 +98,10 @@ def test_builds_compatible_BBO_manifest_and_ignores_localized_docs(tmp_path: Pat
     assert manifest.generated is True
     assert manifest.task_id == "minimal"
     assert "memory_write" in manifest.tool_policy["enabled_tools"]
+    assert "code_interpreter" in manifest.tool_policy["enabled_tools"]
+    assert manifest.tool_policy["code_interpreter"]["enabled"] is True
+    assert manifest.tool_policy["web_search"]["enabled"] is True
+    assert manifest.research_policy["allow_external_research"] is True
     assert "background.md" in manifest.workspace_seed_files
     assert "background.zh.md" not in manifest.workspace_seed_files
     assert manifest.budget["max_evaluations"] == 2

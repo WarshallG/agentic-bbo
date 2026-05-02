@@ -24,6 +24,9 @@ DEFAULT_BBO_TOOL_NAMES = (
     "analyze_history",
     "memory_read",
     "memory_write",
+    "code_interpreter",
+    "web_search",
+    "fetch_url",
 )
 
 
@@ -135,11 +138,11 @@ def build_compatible_BBO_manifest(task_spec: TaskSpec) -> BBOBenchmarkManifest:
         "workspace_seed_files": _description_seed_files(task_spec),
         "tool_policy": {
             "enabled_tools": list(DEFAULT_BBO_TOOL_NAMES),
-            "code_interpreter": {"enabled": False},
-            "web_search": {"enabled": False},
+            "code_interpreter": {"enabled": True, "languages": ["python"]},
+            "web_search": {"enabled": True},
         },
         "research_policy": {
-            "allow_external_research": False,
+            "allow_external_research": True,
             "source_logging_required": True,
         },
         "memory_policy": {
