@@ -6,23 +6,24 @@ through a SandboxFusion-compatible `/run_code` service.
 
 ## 1. Start SandboxFusion
 
-Official local Docker deployment:
+Official local Docker deployment. BBO uses host port `3211` by default in this
+guide; the SandboxFusion container still listens on port `8080` internally:
 
 ```bash
-docker run -it -p 8080:8080 volcengine/sandbox-fusion:server-20250609
+docker run -it -p 3211:8080 volcengine/sandbox-fusion:server-20250609
 ```
 
 Mainland China mirror:
 
 ```bash
-docker run -it -p 8080:8080 \
+docker run -it -p 3211:8080 \
   vemlp-cn-beijing.cr.volces.com/preset-images/code-sandbox:server-20250609
 ```
 
 The service exposes:
 
 ```text
-POST http://localhost:8080/run_code
+POST http://localhost:3211/run_code
 ```
 
 with request body:
@@ -66,7 +67,7 @@ create version conflicts with lightweight benchmark environments.
 Either export the base URL:
 
 ```bash
-export SANDBOX_FUSION_BASE_URL="http://localhost:8080"
+export SANDBOX_FUSION_BASE_URL="http://localhost:3211"
 ```
 
 or pass it through the runner:
@@ -76,7 +77,7 @@ uv run python -m bbo.run \
   --task branin_demo \
   --algorithm nanobot \
   --agent-code-backend sandboxfusion \
-  --sandbox-fusion-base-url "http://localhost:8080"
+  --sandbox-fusion-base-url "http://localhost:3211"
 ```
 
 If no base URL is configured, BBO returns a disabled `code_interpreter` result
@@ -108,7 +109,7 @@ This keeps the `run.sh` LLM proxy style and enables SandboxFusion for code:
 
 ```bash
 export NANOBOT_API_KEY="..."
-export SANDBOX_FUSION_BASE_URL="http://localhost:8080"
+export SANDBOX_FUSION_BASE_URL="http://localhost:3211"
 
 uv run --extra nanobot python -m bbo.run \
   --task branin_demo \
