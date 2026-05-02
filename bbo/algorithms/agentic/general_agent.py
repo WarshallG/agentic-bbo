@@ -228,7 +228,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
         self._workspace_dir = self._run_dir / "agent_workspace"
         self._state_dir = self._run_dir / "agent_state"
         self._memory_dir = self._run_dir / "agent_memory"
-        log_dir = self._run_dir / "agent_llm_logs"
+        log_dir = self._run_dir / "llm_logs"
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
         self._state_dir.mkdir(parents=True, exist_ok=True)
         self._memory_dir.mkdir(parents=True, exist_ok=True)
@@ -259,6 +259,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             "agent_state_dir": str(self._state_dir),
             "agent_calls_jsonl": str(self._agent_calls_path),
             "agent_prompts_jsonl": str(self._agent_prompts_path),
+            "llm_logs_dir": str(log_dir),
             "agent_llm_logs_dir": str(log_dir),
             "agent_state_json": str(self._agent_state_path),
             "agent_history_jsonl": str(self._workspace_dir / "history.jsonl"),
@@ -267,6 +268,8 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             "agent_task_md": str(self._workspace_dir / "task.md"),
             "agent_manifest_json": str(self._workspace_dir / "manifest.json"),
             "agent_tool_specs_json": str(self._agent_tool_specs_path),
+            "agent_workspace_tool_py": str(self._workspace_dir / "bbo_tool.py"),
+            "agent_workspace_tool_config_json": str(self._workspace_dir / "bbo_tool_config.json"),
             "agent_tool_calls_jsonl": str(self._agent_tool_calls_path),
             "agent_sources_jsonl": str(self._agent_sources_path),
             "agent_memory_jsonl": str(self._agent_memory_path),
@@ -616,6 +619,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             },
         )
         self._write_history_jsonl(history)
+        self._write_workspace_tool_bridge()
         (self._workspace_dir / "instructions.md").write_text(self._render_instructions(), encoding="utf-8")
 
     def _write_history_jsonl(self, history: list[TrialObservation]) -> None:
@@ -624,6 +628,49 @@ class GeneralAgentBBOAlgorithm(Algorithm):
         with path.open("w", encoding="utf-8") as handle:
             for observation in history:
                 handle.write(json.dumps(to_jsonable(_observation_summary(observation)), sort_keys=True) + "\n")
+
+    def _write_workspace_tool_bridge(self) -> None:
+        assert self._workspace_dir is not None
+        repo_root = Path(__file__).resolve().parents[3]
+        script = textwrap.dedent(
+            f"""
+            #!/usr/bin/env python3
+            from __future__ import annotations
+
+            import sys
+            from pathlib import Path
+
+            sys.path.insert(0, {str(repo_root)!r})
+
+            from bbo.algorithms.agentic.workspace_tool_cli import main
+
+
+            if __name__ == "__main__":
+                config_path = Path(__file__).with_name("bbo_tool_config.json")
+                raise SystemExit(main(default_config_path=str(config_path)))
+            """
+        ).lstrip()
+        tool_path = self._workspace_dir / "bbo_tool.py"
+        tool_path.write_text(script, encoding="utf-8")
+        try:
+            tool_path.chmod(0o755)
+        except OSError:
+            pass
+        dump_json(
+            self._workspace_dir / "bbo_tool_config.json",
+            {
+                "workspace_dir": str(self._workspace_dir),
+                "tool_calls_path": str(self._agent_tool_calls_path),
+                "sources_path": str(self._agent_sources_path),
+                "memory_path": str(self._agent_memory_path),
+                "memory_summary_path": str(self._agent_memory_summary_path),
+                "seed": self._seed,
+                "code_backend": self.config.code_backend,
+                "sandbox_fusion_base_url": self.config.sandbox_fusion_base_url or os.environ.get("SANDBOX_FUSION_BASE_URL"),
+                "web_search_provider": self.config.web_search_provider,
+                "web_search_api_key_env": self.config.web_search_api_key_env,
+            },
+        )
 
     def _render_task_markdown(self) -> str:
         task_spec = self._require_task_spec()
@@ -648,10 +695,17 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             - history.jsonl: recent evaluated trials.
             - incumbent.json: current best known configuration, if any.
             - tool_specs.json: available BBO function-calling tools when the backend supports tools.
+            - bbo_tool.py: workspace CLI bridge for BBO tools when the agent backend uses shell/file tools.
 
             Task: {task_spec.name}
             Primary objective: {task_spec.primary_objective.name}
             Direction: {task_spec.primary_objective.direction.value}
+
+            Workspace tool bridge:
+            - Call tools with: python bbo_tool.py <tool_name> '<json-arguments>'
+            - Example: python bbo_tool.py get_search_space '{{}}'
+            - Tool results are JSON objects with `ok` and `result` fields.
+            - Tool calls are append-only logged to agent_tool_calls.jsonl.
 
             Print only raw JSON to stdout, with this exact shape:
             {{"candidates": [{{"config": {{"param_name": "value"}}, "rationale": "short reason"}}]}}
@@ -659,6 +713,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             Requirements:
             - Return {self.config.candidates_per_call} candidate configurations when possible.
             - Use BBO tools for task context, history, memory, validation, code analysis, or web research when available.
+            - If using bbo_tool.py, validate proposed candidates with validate_candidates before final output.
             - Do not include markdown fences, comments, prose, or partial configurations.
             - Float and integer values must stay within their declared bounds.
             - Categorical values must be one of the declared choices.
@@ -678,6 +733,10 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             Read `instructions.md`, `task.md`, `manifest.json`, `space.json`,
             `objective.json`, `history.jsonl`, `incumbent.json`, and `tool_specs.json`
             in the workspace.
+
+            If native function-calling tools are unavailable, use `python bbo_tool.py`
+            from the workspace for BBO tool calls. At minimum, inspect search space,
+            history, incumbent, and validate your final candidate list.
 
             Current best primary objective: {best_score}
             Objective direction: {task_spec.primary_objective.direction.value}

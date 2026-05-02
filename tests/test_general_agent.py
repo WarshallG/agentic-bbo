@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -140,9 +142,13 @@ def test_nanobot_bbo_algorithm_with_mock_engine_writes_artifacts(tmp_path: Path)
     artifacts = algorithm.artifact_paths
     assert Path(artifacts["agent_workspace"]).exists()
     assert Path(artifacts["agent_calls_jsonl"]).exists()
+    assert Path(artifacts["llm_logs_dir"]).exists()
+    assert Path(artifacts["agent_llm_logs_dir"]) == Path(artifacts["llm_logs_dir"])
     assert Path(artifacts["agent_state_json"]).exists()
     assert Path(artifacts["agent_manifest_json"]).exists()
     assert Path(artifacts["agent_tool_specs_json"]).exists()
+    assert Path(artifacts["agent_workspace_tool_py"]).exists()
+    assert Path(artifacts["agent_workspace_tool_config_json"]).exists()
     assert Path(artifacts["agent_tool_calls_jsonl"]).exists()
     assert Path(artifacts["agent_memory_jsonl"]).parent.exists()
     assert (Path(artifacts["agent_workspace"]) / "instructions.md").exists()
@@ -152,6 +158,55 @@ def test_nanobot_bbo_algorithm_with_mock_engine_writes_artifacts(tmp_path: Path)
     records = logger.load_records()
     assert records[0].suggestion_metadata["agent_framework"] == "nanobot"
     assert records[0].suggestion_metadata["agent_engine"] == "mock"
+
+
+def test_workspace_tool_bridge_calls_every_advertised_tool(tmp_path: Path) -> None:
+    task = create_task("branin_demo", max_evaluations=4, seed=5)
+    algorithm = NanobotBBOAlgorithm(
+        engine=MockAgentEngine(seed=23),
+        run_dir=tmp_path / "agent_run",
+        tool_mode="workspace_json",
+        code_backend="mock",
+        web_search_provider="mock",
+    )
+    algorithm.setup(task.spec, seed=5, task_description=task.get_description())
+    artifacts = algorithm.artifact_paths
+    workspace = Path(artifacts["agent_workspace"])
+    tool_script = Path(artifacts["agent_workspace_tool_py"])
+    calls = {
+        "get_task_context": {"max_chars_per_section": 500},
+        "get_search_space": {},
+        "get_trial_history": {"mode": "all", "limit": 5},
+        "get_incumbent": {},
+        "validate_candidates": {"candidates": [{"config": {"x1": 0.0, "x2": 0.0}}]},
+        "sample_candidates": {"n": 2, "seed": 5},
+        "analyze_history": {},
+        "memory_write": {"kind": "note", "content": "workspace bridge probe", "tags": ["healthcheck"]},
+        "memory_read": {"tags": ["healthcheck"]},
+        "code_interpreter": {"code": "print(1)", "language": "python"},
+        "web_search": {"query": "branin optimization prior", "limit": 1},
+        "fetch_url": {"url": "https://example.com", "max_chars": 200},
+    }
+
+    for tool_name, arguments in calls.items():
+        completed = subprocess.run(
+            [sys.executable, str(tool_script), tool_name, json.dumps(arguments)],
+            cwd=workspace,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert completed.returncode == 0, completed.stderr
+        payload = json.loads(completed.stdout)
+        assert payload["ok"] is True
+
+    records = [
+        json.loads(line)
+        for line in Path(artifacts["agent_tool_calls_jsonl"]).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert {record["tool_name"] for record in records} >= set(calls)
+    assert all(record["success"] is True for record in records)
 
 
 def test_general_agent_replay_resume_extends_history(tmp_path: Path) -> None:
