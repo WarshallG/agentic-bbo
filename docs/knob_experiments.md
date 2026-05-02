@@ -25,20 +25,24 @@ uv sync --extra dev --extra surrogate
 
 ### 可用的 surrogate knob 任务
 
-用 Python 列出 task id：
+用 Python 列出 **catalog / Docker canonical** id（`knob_surrogate_*`，与 `SURROGATE_BENCHMARKS` 一致）：
 
 ```bash
 uv run python -c "from bbo.tasks import SURROGATE_TASK_IDS; print('\\n'.join(SURROGATE_TASK_IDS))"
 ```
 
-常见 task id（示例）：
+**`python -m bbo.run` 与 `ALL_TASK_NAMES` 只注册 HTTP 型任务**（`knob_http_surrogate_*`）。本机直接加载 `.joblib` 请用
+`from bbo.tasks.dbtune import create_surrogate_knob_task` 或脚本封装，不通过 CLI。
 
-- `knob_surrogate_sysbench_5`
-- `knob_surrogate_sysbench_all`
-- `knob_surrogate_job_5`
-- `knob_surrogate_job_all`
-- `knob_surrogate_pg_5`
-- `knob_surrogate_pg_20`
+列出可供 `bbo.run` 的 HTTP surrogate task id：
+
+```bash
+uv run python -c "from bbo.tasks import HTTP_SURROGATE_TASK_IDS; print(*HTTP_SURROGATE_TASK_IDS, sep='\\n')"
+```
+
+常见 canonical 名（与 `assets/README.md`、Docker `GET /task/<id>` 一致）：`knob_surrogate_sysbench_5`、
+`knob_surrogate_sysbench_all`、`knob_surrogate_job_5`、`knob_surrogate_job_all`、
+`knob_surrogate_pg_5`、`knob_surrogate_pg_20`；CLI 上对应 `knob_http_surrogate_...`（多 `http_` 前缀）。
 
 ### 准备 `*.joblib` surrogate 文件
 
@@ -74,7 +78,7 @@ export AGENTIC_BBO_SYSBENCH5_SURROGATE=/absolute/path/to/RF_SYSBENCH_5knob.jobli
 
 ```bash
 uv run python -m bbo.run \
-  --task knob_surrogate_sysbench_5 \
+  --task knob_http_surrogate_sysbench_5 \
   --algorithm random_search \
   --seed 1 \
   --max-evaluations 60
@@ -84,7 +88,7 @@ uv run python -m bbo.run \
 
 ```bash
 uv run python -m bbo.run \
-  --task knob_surrogate_sysbench_5 \
+  --task knob_http_surrogate_sysbench_5 \
   --algorithm pycma \
   --seed 1 \
   --max-evaluations 60 \
@@ -92,17 +96,10 @@ uv run python -m bbo.run \
   --popsize 6
 ```
 
-从命令行覆盖 joblib/knobs 路径（可选）：
-
-```bash
-uv run python -m bbo.run \
-  --task knob_surrogate_sysbench_5 \
-  --algorithm random_search \
-  --seed 1 \
-  --max-evaluations 60 \
-  --surrogate-path /abs/path/to/RF_SYSBENCH_5knob.joblib \
-  --knobs-json-path bbo/tasks/dbtune/assets/knobs_SYSBENCH_top5.json
-```
+进程内覆盖 `*.joblib` / `knobs_*.json` 路径时，在代码里调
+`create_surrogate_knob_task("knob_surrogate_sysbench_5", ..., surrogate_path=..., knobs_json_path=...)`（见
+`bbo.run` 的 `run_single_experiment` 对 surrogate 的 kwargs）。**HTTP** 型（`--task knob_http_surrogate_*`）在
+容器内加载模型，一般不在宿主机传 `--surrogate-path`。
 
 ### 运行示例脚本
 
@@ -110,7 +107,7 @@ uv run python -m bbo.run \
 
 ```bash
 uv run python examples/run_knob_surrogate_demo.py \
-  --task knob_surrogate_sysbench_5 \
+  --task knob_http_surrogate_sysbench_5 \
   --algorithm random_search \
   --seed 1 \
   --max-evaluations 60
@@ -133,7 +130,7 @@ runs/demo/<task>/<algorithm>/seed_<seed>/
 
 | 方式 | `task` 命名 | 说明 |
 |------|------------|------|
-| 进程内 | `knob_surrogate_sysbench_5` 等 | 本机 `joblib` + 本机 `predict`，不经过 HTTP。 |
+| 进程内 | `create_surrogate_knob_task("knob_surrogate_sysbench_5", ...)` | 本机 `joblib` + 本机 `predict`；**不在** `bbo.run` / `ALL_TASK_NAMES` 注册。 |
 | 侧车 HTTP | `knob_http_surrogate_sysbench_5` 等 | 与**真实数据库任务同一思路**：BBO 只产生归一化点，**`POST` 发一个 `x`（`[0,1]^d` 列表）**，**容器里解码 knobs + 代理模型，返回一个标量 `y`**。模型与 sklearn 3.7 环境只在镜像里。 |
 
 **HTTP 合约（与「真实库：发配置、回吞吐」平行）**：

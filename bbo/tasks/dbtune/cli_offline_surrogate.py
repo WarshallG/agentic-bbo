@@ -1,4 +1,10 @@
-"""Register in-process (local joblib) surrogate tasks for ``bbo.run``."""
+"""In-process (local joblib) surrogate tasks.
+
+Canonical benchmark ids in :data:`bbo.tasks.dbtune.catalog.SURROGATE_BENCHMARKS` are still used
+by HTTP ``knob_http_surrogate_*`` and ``docker_surrogate/``. They are **not** registered under
+:func:`bbo.tasks.create_task` / ``python -m bbo.run``; use ``knob_http_surrogate_*`` for CLI,
+or call :func:`bbo.tasks.dbtune.create_surrogate_knob_task` directly.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from ...core import Task
-from .catalog import SURROGATE_BENCHMARKS
 from .offline_surrogate_task import create_surrogate_knob_task
 
-INPROC_SURROGATE_TASK_NAMES: frozenset[str] = frozenset(SURROGATE_BENCHMARKS)
+INPROC_SURROGATE_TASK_NAMES: frozenset[str] = frozenset()
 
 
 def inproc_surrogate_registry_entries() -> dict[str, str]:

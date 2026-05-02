@@ -171,8 +171,10 @@ Start the published evaluator service first:
 
 ```bash
 docker pull gaozhixuan/bboplace-bench
-docker run --rm -p 8080:8080 gaozhixuan/bboplace-bench
+docker run --rm -p 8070:8080 gaozhixuan/bboplace-bench
 ```
+
+The task defaults to `http://127.0.0.1:8070` (host port **8070** → container **8080**, to avoid clashing with the MariaDB evaluator on **8080**). Override with `BBOPLACE_BASE_URL` if needed.
 
 Then run a quick smoke test from this repo:
 

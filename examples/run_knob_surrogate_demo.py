@@ -6,16 +6,16 @@ import argparse
 import json
 
 from bbo.run import run_single_experiment
-from bbo.tasks import SURROGATE_TASK_IDS
+from bbo.tasks import HTTP_SURROGATE_TASK_IDS
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Knob surrogate benchmark demo.")
     parser.add_argument(
         "--task",
-        default="knob_surrogate_sysbench_all",
-        choices=sorted(SURROGATE_TASK_IDS),
-        help="Surrogate task id (default: sysbench_5; large models e.g. *_20 need a complete .joblib).",
+        default="knob_http_surrogate_sysbench_5",
+        choices=sorted(HTTP_SURROGATE_TASK_IDS),
+        help="HTTP surrogate service task id (run docker_surrogate; large models e.g. *_20 need a complete .joblib on the service).",
     )
     parser.add_argument(
         "--algorithm",

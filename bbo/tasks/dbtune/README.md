@@ -23,7 +23,9 @@ clear subfolders.
 ## Import surface
 
 User code typically uses the stable exports from `bbo.tasks` / `bbo.tasks.registry` (e.g.
-`create_task("knob_surrogate_sysbench_5")` or the MariaDB `knob_http_mariadb_sysbench_*` ids). For a
+`create_task("knob_http_surrogate_sysbench_5")` or the MariaDB `knob_http_mariadb_sysbench_*` ids). In-process
+`create_surrogate_knob_task("knob_surrogate_sysbench_5", ...)` remains available but is not registered on
+`python -m bbo.run`. For a
 **direct** import, prefer:
 
 ```python

@@ -2,7 +2,7 @@
 
 Prerequisite (start evaluator service first):
     docker pull gaozhixuan/bboplace-bench
-    docker run --rm -p 8080:8080 gaozhixuan/bboplace-bench
+    docker run --rm -p 8070:8080 gaozhixuan/bboplace-bench
 
 Example:
     uv run python examples/run_bboplace_demo.py --benchmark adaptec1 --n-macro 32 --seed 1 --max-evaluations 1

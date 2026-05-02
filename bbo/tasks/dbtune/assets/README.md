@@ -10,6 +10,8 @@ If `joblib.load` fails with **`EOF` / `reading array data`**, the file on disk i
 
 Each `*.joblib` is a **serialized sklearn surrogate** (RF, etc.): it maps physical knob feature vectors to a predicted metric (throughput or latency). Names map to workloads: **Sysbench/MySQL** (`RF_SYSBENCH_*`, `SYSBENCH_all`), **JOB** (`RF_JOB_*`, `JOB_all`), **PostgreSQL** (`pg_5`, `pg_20`). The matching `knobs_*.json` files in this folder define the BBO search space.
 
+`python -m bbo.run` registers **HTTP** tasks `knob_http_surrogate_*` only; the table’s `task_id` column is the **canonical** name (also used by Docker `GET /task/<task_id>`). For in-process loading, call `create_surrogate_knob_task("<task_id>", ...)` from Python.
+
 ## Joblib files ↔ benchmark `task_id`
 
 | File (from the link above) | `task_id` | Env override (optional) |

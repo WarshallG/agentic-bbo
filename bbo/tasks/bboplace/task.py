@@ -30,7 +30,8 @@ PACKAGE_ROOT = _TASK_FILE.parents[2]
 TASK_DESCRIPTION_ROOT = PACKAGE_ROOT / "task_descriptions"
 
 BBOPLACE_TASK_KEY = "bboplace_bench"
-DEFAULT_BASE_URL = "http://127.0.0.1:8080"
+# 宿主机默认 8070，避免与 MariaDB HTTP 评估器默认 8080 冲突；容器内服务仍为 8080，用 -p 8070:8080
+DEFAULT_BASE_URL = "http://127.0.0.1:8070"
 DEFAULT_EVALUATE_PATH = "/evaluate"
 DEFAULT_N_GRID = 224
 DEFAULT_N_MACRO = 32

@@ -20,17 +20,19 @@ docker pull gaozhixuan/bboplace-bench
 CPU-style invocation:
 
 ```bash
-docker run --rm -p 8080:8080 gaozhixuan/bboplace-bench
+docker run --rm -p 8070:8080 gaozhixuan/bboplace-bench
 ```
+
+(The image listens on **8080 inside the container**; this maps it to **8070** on the host, avoiding a clash with the MariaDB evaluator default **8080** in this repo.)
 
 If your local setup requires GPU access, add `--gpus all` before the image name.
 The `--rm` flag is convenient for disposable smoke tests; omit it if you want to keep the container around for debugging or to inspect logs after exit.
 
-The packaged task defaults to `http://127.0.0.1:8080` and posts evaluations to `/evaluate`.
+The packaged task defaults to `http://127.0.0.1:8070` and posts evaluations to `/evaluate`.
 Override the base URL when the service is hosted elsewhere:
 
 ```bash
-export BBOPLACE_BASE_URL=http://127.0.0.1:8080
+export BBOPLACE_BASE_URL=http://127.0.0.1:8070
 ```
 
 ## Install this repo
@@ -44,7 +46,7 @@ uv sync --extra dev
 With the container running, execute:
 
 ```bash
-export BBOPLACE_BASE_URL=http://127.0.0.1:8080
+export BBOPLACE_BASE_URL=http://127.0.0.1:8070
 uv run python -m bbo.run --algorithm random_search --task bboplace_bench --max-evaluations 1
 ```
 

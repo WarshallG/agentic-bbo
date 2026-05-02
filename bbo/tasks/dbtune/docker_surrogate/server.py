@@ -256,4 +256,7 @@ def evaluate():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8090"))
-    app.run(host="0.0.0.0", port=port, threaded=True)
+    # 禁止 reloader：容器里若开启会起子进程，易导致端口/健康检查异常
+    # threaded=True: /evaluate 与 /health 可并发
+    print("agentbbo surrogate HTTP listening on 0.0.0.0:{0}".format(port), file=sys.stderr, flush=True)
+    app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=False)

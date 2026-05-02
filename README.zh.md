@@ -171,8 +171,10 @@ uv run python -m bbo.run \
 
 ```bash
 docker pull gaozhixuan/bboplace-bench
-docker run --rm -p 8080:8080 gaozhixuan/bboplace-bench
+docker run --rm -p 8070:8080 gaozhixuan/bboplace-bench
 ```
+
+任务默认连 `http://127.0.0.1:8070`（宿主机 **8070** 映射到容器内 **8080**，避免与 MariaDB 评估器默认 **8080** 冲突）。需要时可设 `BBOPLACE_BASE_URL`。
 
 然后在本仓库里执行一个快速 smoke test：
 

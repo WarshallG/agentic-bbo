@@ -20,17 +20,19 @@ docker pull gaozhixuan/bboplace-bench
 CPU 风格的最小启动命令：
 
 ```bash
-docker run --rm -p 8080:8080 gaozhixuan/bboplace-bench
+docker run --rm -p 8070:8080 gaozhixuan/bboplace-bench
 ```
+
+（镜像**容器内**仍监听 8080；映射到宿主机 **8070**，与本仓库中 MariaDB 评估默认 **8080** 错开。）
 
 如果你的本地环境要求 GPU，可在镜像名前加上 `--gpus all`。
 `--rm` 适合一次性的 smoke test；如果你想保留容器用于调试或查看退出后的日志，可以去掉这个参数。
 
-当前打包任务默认访问 `http://127.0.0.1:8080`，并向 `/evaluate` 发送评估请求。
+当前打包任务默认访问 `http://127.0.0.1:8070`，并向 `/evaluate` 发送评估请求。
 如果 service 部署在其他地址，可以这样覆盖：
 
 ```bash
-export BBOPLACE_BASE_URL=http://127.0.0.1:8080
+export BBOPLACE_BASE_URL=http://127.0.0.1:8070
 ```
 
 ## 安装本仓库
@@ -44,7 +46,7 @@ uv sync --extra dev
 在 container 运行后，执行：
 
 ```bash
-export BBOPLACE_BASE_URL=http://127.0.0.1:8080
+export BBOPLACE_BASE_URL=http://127.0.0.1:8070
 uv run python -m bbo.run --algorithm random_search --task bboplace_bench --max-evaluations 1
 ```
 
