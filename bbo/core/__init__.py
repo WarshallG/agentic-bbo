@@ -20,6 +20,7 @@ from .description import (
 )
 from .experimenter import ExperimentConfig, Experimenter, RunSummary
 from .logger import JsonlMetricLogger, MetricLogger, ResumeState
+from .manifest import BBOBenchmarkManifest, DEFAULT_BBO_TOOL_NAMES, build_compatible_BBO_manifest, load_BBO_manifest
 from .plotting import (
     CumulativeEvalTimeComparisonPlotter,
     CumulativeEvalTimePlotter,
@@ -46,9 +47,11 @@ from .trial import EvaluationResult, TrialObservation, TrialRecord, TrialStatus,
 
 __all__ = [
     "Algorithm",
+    "BBOBenchmarkManifest",
     "CategoricalParam",
     "ContinuousFeatureSpec",
     "ContinuousSearchSpaceConverter",
+    "DEFAULT_BBO_TOOL_NAMES",
     "DescriptionSectionSpec",
     "EvaluationResult",
     "ExperimentConfig",
@@ -92,7 +95,9 @@ __all__ = [
     "TrialStatus",
     "TrialSuggestion",
     "build_continuous_converter",
+    "build_compatible_BBO_manifest",
     "from_configspace",
+    "load_BBO_manifest",
     "to_configspace",
     "write_task_description_template",
 ]

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from bbo.core import (
+    BBOBenchmarkManifest,
     EvaluationResult,
     FloatParam,
     MarkdownDescriptionLoader,
@@ -14,6 +16,7 @@ from bbo.core import (
     TaskSpec,
     TrialStatus,
     TrialSuggestion,
+    load_BBO_manifest,
     write_task_description_template,
 )
 
@@ -60,3 +63,41 @@ def test_task_requires_environment_provisioning(tmp_path: Path) -> None:
     report = _MinimalTask(tmp_path).sanity_check()
     assert not report.ok
     assert any(issue.code == "missing_environment_setup" for issue in report.errors)
+
+
+def test_loads_task_local_BBO_manifest(tmp_path: Path) -> None:
+    write_task_description_template(tmp_path)
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "task_id": "minimal",
+                "family": "scientific",
+                "real_world_domain": "demo chemistry",
+                "tool_policy": {"enabled_tools": ["get_task_context"], "web_search": {"enabled": True}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = load_BBO_manifest(_MinimalTask(tmp_path).spec)
+
+    assert isinstance(manifest, BBOBenchmarkManifest)
+    assert manifest.task_id == "minimal"
+    assert manifest.family == "scientific"
+    assert manifest.real_world_domain == "demo chemistry"
+    assert manifest.tool_policy["web_search"]["enabled"] is True
+    assert manifest.generated is False
+
+
+def test_builds_compatible_BBO_manifest_and_ignores_localized_docs(tmp_path: Path) -> None:
+    write_task_description_template(tmp_path)
+    (tmp_path / "background.zh.md").write_text("# localized\n", encoding="utf-8")
+
+    manifest = load_BBO_manifest(_MinimalTask(tmp_path).spec)
+
+    assert manifest.generated is True
+    assert manifest.task_id == "minimal"
+    assert "memory_write" in manifest.tool_policy["enabled_tools"]
+    assert "background.md" in manifest.workspace_seed_files
+    assert "background.zh.md" not in manifest.workspace_seed_files
+    assert manifest.budget["max_evaluations"] == 2
