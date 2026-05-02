@@ -11,6 +11,7 @@ from .llm_based import (
     OproAlgorithm,
     OproBackend,
 )
+from .llm_based.skydiscover_interleaved import SkydiscoverInterleavedAlgorithm
 from .model_based import CustomPfnsBoAlgorithm, OptunaTpeAlgorithm, Pfns4BoAlgorithm, TabPfnV2BoAlgorithm
 from .registry import ALGORITHM_REGISTRY, AlgorithmSpec, algorithms_by_family, create_algorithm
 from .traditional import PyCmaAlgorithm, RandomSearchAlgorithm
@@ -35,6 +36,7 @@ __all__ = [
     "Pfns4BoAlgorithm",
     "PyCmaAlgorithm",
     "RandomSearchAlgorithm",
+    "SkydiscoverInterleavedAlgorithm",
     "TabPfnV2BoAlgorithm",
     "algorithms_by_family",
     "create_algorithm",

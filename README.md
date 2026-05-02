@@ -56,9 +56,10 @@ Reusable benchmark abstractions:
 Algorithm implementations are grouped by family.
 Current families:
 
-- `bbo/algorithms/agentic/`
-  - `llambo.py`
-  - `opro.py`
+- `bbo/algorithms/agentic/` — agentic orchestration (e.g. Pablo, Nanobot, Claude Code adapters)
+- `bbo/algorithms/llm_based/`
+  - `llambo.py`, `opro.py`
+  - `skydiscover_interleaved.py` (SkyDiscover-backed OpenEvolve, GEPA, EvoX, and AdaEvolve integration; ShinkaEvolve can be added as an external backend)
 - `bbo/algorithms/model_based/`
   - `optuna_tpe.py`
 - `bbo/algorithms/traditional/`
@@ -102,6 +103,12 @@ Optuna TPE is kept optional so the base install stays lightweight:
 
 ```bash
 uv sync --extra dev --extra optuna
+```
+
+The **SkyDiscover interleaved** algorithm (`skydiscover_interleaved`) uses the optional PyPI `skydiscover` package:
+
+```bash
+uv sync --extra dev --extra skydiscover
 ```
 
 Scientific smoke tests for `her_demo`, `oer_demo`, and `molecule_qed_demo` additionally require:
@@ -152,6 +159,14 @@ uv run python examples/run_llambo_demo.py
 
 ```bash
 uv run python examples/run_opro_demo.py
+```
+
+### SkyDiscover interleaved baseline (offline)
+
+No LLM / no `skydiscover` extra required: interleave steps refresh the bundled seed strategy only.
+
+```bash
+uv run python examples/run_skydiscover_interleaved_demo.py
 ```
 
 ### Direct CLI example
@@ -256,9 +271,101 @@ Additional tuning flags:
 
 A ready-made demo script for the online backend is provided at `examples/run_opro_openai_demo.py`.
 
+### SkyDiscover interleaved (`skydiscover_interleaved`)
+
+This algorithm alternates **short SkyDiscover runs** (evolving a Python module that implements `suggest_next_config`) with **normal BBO trials** on the task search space. Artifacts live under each run directory: `generated/strategy.py`, `generated/meta_context.json`, and per-round `generated/skydiscover_round_*`.
+
+Public names: `skydiscover_interleaved` (alias: `skydiscover_meta`).
+
+#### Credentials (API keys)
+
+LLAMBO and OPRO expose runner-layer flags such as `--llambo-openai-api-key-env` / `--opro-openai-api-key-env` so `bbo.run` can wire OpenAI-compatible credentials explicitly.
+
+**`skydiscover_interleaved` does not use those flags.** When you enable **`--skydiscover-runner`**, the SkyDiscover `Runner` is invoked in-process and loads credentials the **same way standalone SkyDiscover** does:
+
+- **Environment variables** — e.g. `OPENAI_API_KEY`, plus optional `OPENAI_API_BASE` / `OPENAI_BASE_URL` as resolved by SkyDiscover’s `load_config()` (provider-specific variables such as `AZURE_API_KEY`, `ANTHROPIC_API_KEY`, etc. apply when the model name implies that provider).
+- **YAML config** — pass `--skydiscover-config path/to/config.yaml`; under `llm` you can set `api_key`, `api_base`, and `models` entries (per-model overrides are supported by SkyDiscover).
+- **Post-load bridging** — SkyDiscover may copy resolved keys into the process environment for backends that read env vars only (`bridge_provider_env`).
+
+So: **put keys in the environment or in the SkyDiscover YAML**, not in LLAMBO/OPRO-specific CLI options.
+
+#### Offline / smoke (no LLM)
+
+With **`--no-skydiscover-runner`** (the default when you do not pass `--skydiscover-runner`), no SkyDiscover `Runner` and no LLM calls run: the bundled seed strategy is copied on the interleave cadence. **No API key is required** — useful for CI and for validating BBO logging, replay, and `generated/strategy.py` refresh without cloud calls.
+
+Example:
+
+```bash
+uv run python -m bbo.run \
+  --algorithm skydiscover_interleaved \
+  --task branin_demo \
+  --max-evaluations 20 \
+  --skydiscover-interleave-every 5 \
+  --no-skydiscover-runner
+```
+
+#### End-to-end LLM evolution (online SkyDiscover)
+
+To exercise the full loop — **SkyDiscover evolves `suggest_next_config` via LLM**, then BBO evaluates real task trials using the updated `generated/strategy.py` — do the following:
+
+1. **Install the optional SkyDiscover dependency**:
+
+   ```bash
+   uv sync --extra dev --extra skydiscover
+   ```
+
+2. **Provide credentials** using either approach (or both, with YAML overriding where applicable):
+
+   - **Environment:** export the key your provider expects (commonly `OPENAI_API_KEY` for OpenAI-style endpoints). Set `OPENAI_API_BASE` / `OPENAI_BASE_URL` if you use a proxy or non-default host.
+   - **YAML:** create or reuse a SkyDiscover config and pass it with `--skydiscover-config`. Put `api_key`, `api_base`, and `models` under `llm` per SkyDiscover’s schema so discovery iterations can call the model.
+
+3. **Enable the runner** with **`--skydiscover-runner`** (omit it or use `--no-skydiscover-runner` for offline smoke only).
+
+4. **Tune interleaving:** `--skydiscover-interleave-every` controls how many completed BBO trials occur between SkyDiscover rounds; `--skydiscover-round-iterations` sets how many inner discovery iterations each round runs.
+
+Example (OpenAI key via environment, default SkyDiscover config if you omit `--skydiscover-config`):
+
+```bash
+uv sync --extra dev --extra skydiscover
+export OPENAI_API_KEY=your_key_here
+# Optional: export OPENAI_API_BASE=https://api.openai.com/v1
+uv run python -m bbo.run \
+  --algorithm skydiscover_interleaved \
+  --task branin_demo \
+  --max-evaluations 30 \
+  --skydiscover-interleave-every 4 \
+  --skydiscover-runner \
+  --skydiscover-round-iterations 3 \
+  --skydiscover-search-type adaevolve
+```
+
+If the loaded YAML has **no** `llm.models` entries, this repo injects a single model using **`--skydiscover-model`** (default name `gpt-4o-mini` when unset) so the `Runner` still has a model to call; you should still set the matching API key in env or YAML.
+
+A ready-made script that mirrors `examples/run_opro_openai_demo.py` — including **`--search-type`** for `adaevolve`, `evox`, `gepa`, `openevolve`, etc. — is at **`examples/run_skydiscover_interleaved_openai_demo.py`**.
+
+**Method-specific hyperparameters** (AdaEvolve islands and intensity, GEPA merge/gating, EvoX co-evolution settings, beam width, …) are **not** exposed as separate `bbo.run` flags. Configure them in **SkyDiscover YAML** under `search.database`, exactly as in standalone SkyDiscover. Field names match SkyDiscover's config dataclasses (e.g. `AdaEvolveDatabaseConfig`).
+
+For quick experiments, copy or extend the small repo-local examples in **`examples/skydiscover_configs/`** (`adaevolve_bbo.yaml`, `evox_bbo.yaml`, `gepa_bbo.yaml`, `openevolve_bbo.yaml`) and pass `--config`, or run the demo with **`--preset adaevolve`** / **`--preset evox`** / **`--preset gepa`** / **`--preset openevolve`** (loads the matching example YAML). The YAML `search.type` should match **`--search-type`**; if they disagree, this repo may instantiate a fresh default database for the CLI type and **drop** custom `search.database` values from the file.
+
+**Result directories:** runs with `--algorithm skydiscover_interleaved` (or `skydiscover_meta`) are written to **`<results-root>/<task>/skydiscover_interleaved_<--skydiscover-search-type>/seed_<seed>/`** so each SkyDiscover search type has its own folder (sanitized for the filesystem). To dump **`generated/strategy.py`** plus each **`generated/skydiscover_round_*/best/best_program.py`** from a finished run:
+
+```bash
+uv run python examples/print_skydiscover_run_strategies.py runs/demo/branin_demo/skydiscover_interleaved_topk/seed_7
+```
+
+
+Useful CLI flags:
+
+- `--skydiscover-config` — path to a SkyDiscover YAML config (optional; otherwise SkyDiscover defaults apply).
+- `--skydiscover-search-type` — e.g. `topk`, `adaevolve`, `evox`, `gepa`, `openevolve` (must be supported by your installed SkyDiscover).
+- `--skydiscover-model` — when the loaded config has no `llm.models`, a single `LLMModelConfig(name=...)` is injected (default name `gpt-4o-mini` if unset).
+- `--skydiscover-max-meta-history` — cap on successful `(config, score)` pairs passed into the meta context (default 32).
+
+**Note:** How to measure the performance of the intermediate algorithms evolved by SkyDiscover?
+
 ## Outputs
 
-`python -m bbo.run` writes under `runs/demo/` (or `--results-root`): `trials.jsonl`, `summary.json`, and a `plots/` folder when plotting is enabled (default). Use `--no-plots` to skip PNG generation. `summary.json` includes `plot_paths` listing every generated figure.
+`python -m bbo.run` writes under `runs/demo/` (or `--results-root`): `trials.jsonl`, `summary.json`, and a `plots/` folder when plotting is enabled (default). Use `--no-plots` to skip PNG generation. `summary.json` includes `plot_paths` listing every generated figure. For `skydiscover_interleaved` / `skydiscover_meta`, the immediate parent of `seed_*` is **`skydiscover_interleaved_<search-type>`** (from `--skydiscover-search-type`), and `summary.json` adds `skydiscover_search_type` and `runs_subdirectory`.
 
 Legacy reference bundles may still live under `artifacts/` (e.g. `artifacts/final_demo_v3/`).
 

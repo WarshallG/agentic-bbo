@@ -72,6 +72,9 @@ general-agent = [
 interop = [
   "ConfigSpace>=1.2.0",
 ]
+skydiscover = [
+  "skydiscover",
+]
 
 [tool.uv]
 conflicts = [
@@ -100,7 +103,10 @@ include-package-data = true
 include = ["bbo*"]
 
 [tool.setuptools.package-data]
-bbo = ["task_descriptions/**/*.md"]
+bbo = [
+  "task_descriptions/**/*.md",
+  "algorithms/llm_based/skydiscover_bbo/prompt_templates/*.txt",
+]
 
 [tool.pytest.ini_options]
 addopts = "-q"

@@ -8,6 +8,7 @@ from typing import Any, Callable
 from ..core.algo import Algorithm
 from .agentic import ClaudeCodeBboAlgorithm, NanobotBboAlgorithm, PabloAlgorithm
 from .llm_based import LlamboAlgorithm, OproAlgorithm
+from .llm_based.skydiscover_interleaved import SkydiscoverInterleavedAlgorithm
 from .model_based import CustomPfnsBoAlgorithm, OptunaTpeAlgorithm, Pfns4BoAlgorithm, TabPfnV2BoAlgorithm
 from .traditional import PyCmaAlgorithm, RandomSearchAlgorithm
 
@@ -78,6 +79,18 @@ ALGORITHM_REGISTRY: dict[str, AlgorithmSpec] = {
     "opro": AlgorithmSpec(
         factory=OproAlgorithm,
         description="OPRO-style prompt optimizer over prior configuration/objective pairs.",
+        family="llm_based",
+    ),
+    "skydiscover_interleaved": AlgorithmSpec(
+        factory=SkydiscoverInterleavedAlgorithm,
+        description=(
+            "Interleave SkyDiscover meta-evolution of suggest_next_config with BBO dict optimization."
+        ),
+        family="llm_based",
+    ),
+    "skydiscover_meta": AlgorithmSpec(
+        factory=SkydiscoverInterleavedAlgorithm,
+        description="Alias for skydiscover_interleaved.",
         family="llm_based",
     ),
     "pablo": AlgorithmSpec(
