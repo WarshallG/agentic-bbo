@@ -260,6 +260,8 @@ uv run python -m bbo.algorithms.agentic.sandbox_healthcheck \
   --base-url "$SANDBOX_FUSION_BASE_URL"
 ```
 
+The full BBO SandboxFusion setup guide is in [`docs/sandboxfusion_bbo.md`](docs/sandboxfusion_bbo.md).
+
 If an OpenAI-compatible endpoint returns model reasoning in `message.reasoning_content` (for example the proxy in `run.sh` with `--agent-model deepseek-reasoner`), Nanobot runs write `reasoning_traces/` and `agent_reasoning_metadata.jsonl`. Use `--agent-require-visible-cot` to fail a call when visible reasoning was not captured. The benchmark parser still consumes only the final strict JSON candidates payload.
 
 ```bash
