@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -21,28 +22,24 @@ from bbo.run import build_arg_parser
 from bbo.tasks import create_task
 
 
-class WorkspaceSearchR1MockHandler(BaseHTTPRequestHandler):
+class WorkspaceSerpApiMockHandler(BaseHTTPRequestHandler):
     requests: list[dict] = []
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002
         return
 
-    def do_POST(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
-        payload = json.loads(self.rfile.read(length).decode("utf-8"))
-        type(self).requests.append({"path": self.path, "payload": payload})
+    def do_GET(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        params = dict(urllib.parse.parse_qsl(parsed.query))
+        type(self).requests.append({"path": parsed.path, "params": params})
         body = json.dumps(
             {
-                "result": [
-                    [
-                        {
-                            "document": {
-                                "contents": '"Workspace prior"\nSearch-R1 workspace bridge result.',
-                                "url": "https://example.test/workspace",
-                            },
-                            "score": 0.92,
-                        }
-                    ]
+                "organic_results": [
+                    {
+                        "title": "Workspace SERP prior",
+                        "link": "https://example.test/workspace-serp",
+                        "snippet": "SerpAPI workspace bridge result.",
+                    }
                 ]
             }
         ).encode("utf-8")
@@ -92,6 +89,7 @@ class ReasoningMetadataMockEngine(MockAgentEngine):
 def test_general_agent_algorithms_are_registered_and_cli_visible() -> None:
     parser = build_arg_parser()
     algorithm_action = next(action for action in parser._actions if action.dest == "algorithm")
+    web_search_action = next(action for action in parser._actions if action.dest == "agent_web_search_provider")
 
     assert "agentic_nanobot" in ALGORITHM_REGISTRY
     assert "nanobot" in ALGORITHM_REGISTRY
@@ -108,7 +106,8 @@ def test_general_agent_algorithms_are_registered_and_cli_visible() -> None:
     assert "agentic_openai_compatible" in algorithm_action.choices
     assert parser.parse_args(["--algorithm", "claude-code"]).algorithm == "claude-code"
     assert parser.parse_args(["--algorithm", "agentic_openai_compatible"]).agent_tool_mode == "function_calling"
-    assert parser.parse_args(["--agent-web-search-provider", "search_r1"]).agent_web_search_provider == "search_r1"
+    assert set(web_search_action.choices) == {"disabled", "mock", "serpapi"}
+    assert parser.parse_args(["--agent-web-search-provider", "serpapi"]).agent_web_search_provider == "serpapi"
     assert parser.parse_args(["--algorithm", "nanobot", "--agent-require-visible-cot"]).agent_require_visible_cot is True
 
 
@@ -301,19 +300,20 @@ def test_workspace_tool_bridge_calls_every_advertised_tool(tmp_path: Path) -> No
     assert all(record["success"] is True for record in records)
 
 
-def test_workspace_tool_bridge_supports_search_r1_provider(tmp_path: Path) -> None:
-    WorkspaceSearchR1MockHandler.requests = []
-    server = ThreadingHTTPServer(("127.0.0.1", 0), WorkspaceSearchR1MockHandler)
+def test_workspace_tool_bridge_supports_serpapi_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    WorkspaceSerpApiMockHandler.requests = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), WorkspaceSerpApiMockHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
+        monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
+        monkeypatch.setenv("SERPAPI_ENDPOINT", f"http://127.0.0.1:{server.server_port}/search.json")
         task = create_task("branin_demo", max_evaluations=4, seed=5)
         algorithm = NanobotBBOAlgorithm(
             engine=MockAgentEngine(seed=23),
             run_dir=tmp_path / "agent_run",
             tool_mode="workspace_json",
-            web_search_provider="search_r1",
-            search_r1_base_url=f"http://127.0.0.1:{server.server_port}",
+            web_search_provider="serpapi",
         )
         algorithm.setup(task.spec, seed=5, task_description=task.get_description())
         artifacts = algorithm.artifact_paths
@@ -338,11 +338,16 @@ def test_workspace_tool_bridge_supports_search_r1_provider(tmp_path: Path) -> No
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["ok"] is True
-    assert payload["result"]["results"][0]["title"] == "Workspace prior"
-    assert WorkspaceSearchR1MockHandler.requests == [
+    assert payload["result"]["results"][0]["title"] == "Workspace SERP prior"
+    assert WorkspaceSerpApiMockHandler.requests == [
         {
-            "path": "/retrieve",
-            "payload": {"queries": ["branin optimization prior"], "topk": 2, "return_scores": True},
+            "path": "/search.json",
+            "params": {
+                "engine": "google",
+                "q": "branin optimization prior",
+                "api_key": "test-key",
+                "num": "2",
+            },
         }
     ]
     source_records = Path(artifacts["agent_sources_jsonl"]).read_text(encoding="utf-8").strip().splitlines()

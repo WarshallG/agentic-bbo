@@ -10,7 +10,7 @@ from .web_tools import (
     BBOWebSourceLogger,
     FetchURLTool,
     MockBBOWebSearchProvider,
-    SearchR1BBOWebSearchProvider,
+    SerpApiBBOWebSearchProvider,
     WebSearchTool,
     create_BBO_web_search_provider,
 )
@@ -28,7 +28,7 @@ __all__ = [
     "MockBBOCodeBackend",
     "MockBBOWebSearchProvider",
     "SandboxFusionBBOCodeBackend",
-    "SearchR1BBOWebSearchProvider",
+    "SerpApiBBOWebSearchProvider",
     "WebSearchTool",
     "create_BBO_web_search_provider",
     "create_core_BBO_tools",

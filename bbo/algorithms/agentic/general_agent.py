@@ -106,7 +106,6 @@ class GeneralAgentConfig:
     sandbox_fusion_base_url: str | None = None
     web_search_provider: str = "disabled"
     web_search_api_key_env: str | None = None
-    search_r1_base_url: str | None = None
     allow_fallback: bool = True
     require_visible_cot: bool = False
 
@@ -139,7 +138,6 @@ class GeneralAgentBBOAlgorithm(Algorithm):
         sandbox_fusion_base_url: str | None = None,
         web_search_provider: str = "disabled",
         web_search_api_key_env: str | None = None,
-        search_r1_base_url: str | None = None,
         allow_fallback: bool = True,
         require_visible_cot: bool = False,
     ) -> None:
@@ -182,7 +180,6 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             sandbox_fusion_base_url=sandbox_fusion_base_url,
             web_search_provider=web_search_provider,
             web_search_api_key_env=web_search_api_key_env,
-            search_r1_base_url=search_r1_base_url,
             allow_fallback=bool(allow_fallback),
             require_visible_cot=bool(require_visible_cot),
         )
@@ -568,7 +565,6 @@ class GeneralAgentBBOAlgorithm(Algorithm):
         return create_BBO_web_search_provider(
             self.config.web_search_provider,
             api_key_env=self.config.web_search_api_key_env,
-            search_r1_base_url=self.config.search_r1_base_url,
         )
 
     def _require_tool_registry(self) -> BBOToolRegistry:
@@ -719,7 +715,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 "sandbox_fusion_base_url": self.config.sandbox_fusion_base_url or os.environ.get("SANDBOX_FUSION_BASE_URL"),
                 "web_search_provider": self.config.web_search_provider,
                 "web_search_api_key_env": self.config.web_search_api_key_env,
-                "search_r1_base_url": self.config.search_r1_base_url or os.environ.get("AGENT_SEARCH_R1_BASE_URL"),
+                "serpapi_endpoint": os.environ.get("SERPAPI_ENDPOINT"),
             },
         )
 
@@ -1033,7 +1029,6 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 "max_tool_calls": self.config.max_tool_calls,
                 "enable_memory": self.config.enable_memory,
                 "web_search_provider": self.config.web_search_provider,
-                "search_r1_base_url": self.config.search_r1_base_url,
                 "code_backend": self.config.code_backend,
                 "allow_fallback": self.config.allow_fallback,
                 "require_visible_cot": self.config.require_visible_cot,

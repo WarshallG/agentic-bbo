@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from bbo.algorithms.agentic.tools import (
     CodeInterpreterTool,
     MockBBOCodeBackend,
     MockBBOWebSearchProvider,
-    SearchR1BBOWebSearchProvider,
+    SerpApiBBOWebSearchProvider,
     WebSearchTool,
     create_core_BBO_tools,
 )
@@ -27,28 +28,24 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-class SearchR1MockHandler(BaseHTTPRequestHandler):
+class SerpApiMockHandler(BaseHTTPRequestHandler):
     requests: list[dict] = []
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002
         return
 
-    def do_POST(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
-        payload = json.loads(self.rfile.read(length).decode("utf-8"))
-        type(self).requests.append({"path": self.path, "payload": payload})
+    def do_GET(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        params = dict(urllib.parse.parse_qsl(parsed.query))
+        type(self).requests.append({"path": parsed.path, "params": params})
         body = json.dumps(
             {
-                "result": [
-                    [
-                        {
-                            "document": {
-                                "contents": '"Branin prior"\nPrefer structured exploration near known basins.',
-                                "url": "https://example.test/branin",
-                            },
-                            "score": 0.87,
-                        }
-                    ]
+                "organic_results": [
+                    {
+                        "title": "Branin prior",
+                        "link": "https://example.test/branin",
+                        "snippet": "Prefer structured exploration near known basins.",
+                    }
                 ]
             }
         ).encode("utf-8")
@@ -186,15 +183,16 @@ def test_BBO_code_and_web_tools_use_pluggable_backends(tmp_path: Path) -> None:
     assert json.loads(source_records[0])["kind"] == "search_result"
 
 
-def test_Search_R1_web_provider_calls_retrieve_api(tmp_path: Path) -> None:
-    SearchR1MockHandler.requests = []
-    server = ThreadingHTTPServer(("127.0.0.1", 0), SearchR1MockHandler)
+def test_SerpAPI_web_provider_calls_search_api(tmp_path: Path) -> None:
+    SerpApiMockHandler.requests = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), SerpApiMockHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         context = _tool_context(tmp_path)
-        context.web_search_provider = SearchR1BBOWebSearchProvider(
-            base_url=f"http://127.0.0.1:{server.server_port}",
+        context.web_search_provider = SerpApiBBOWebSearchProvider(
+            api_key="test-key",
+            endpoint=f"http://127.0.0.1:{server.server_port}/search.json",
             timeout_seconds=5.0,
         )
         registry = BBOToolRegistry([WebSearchTool()])
@@ -207,12 +205,17 @@ def test_Search_R1_web_provider_calls_retrieve_api(tmp_path: Path) -> None:
         server.server_close()
         thread.join(timeout=5.0)
 
-    assert SearchR1MockHandler.requests == [
+    assert SerpApiMockHandler.requests == [
         {
-            "path": "/retrieve",
-            "payload": {"queries": ["branin optimization prior"], "topk": 3, "return_scores": True},
+            "path": "/search.json",
+            "params": {
+                "engine": "google",
+                "q": "branin optimization prior",
+                "api_key": "test-key",
+                "num": "3",
+            },
         }
     ]
     assert result["count"] == 1
     assert result["results"][0]["title"] == "Branin prior"
-    assert result["results"][0]["score"] == 0.87
+    assert result["results"][0]["url"] == "https://example.test/branin"
