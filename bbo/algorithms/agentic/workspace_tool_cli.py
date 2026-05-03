@@ -370,6 +370,7 @@ def _web_search(arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, 
             query,
             limit,
             str(config.get("web_search_api_key_env") or "SERPAPI_API_KEY"),
+            str(config.get("web_search_api_key") or ""),
             str(config.get("serpapi_endpoint") or "https://serpapi.com/search.json"),
         )
     else:
@@ -603,8 +604,8 @@ def _sandboxfusion_run(base_url: str, code: str, language: str) -> dict[str, Any
     return payload if isinstance(payload, dict) else {"status": "Error", "message": "Unexpected response shape."}
 
 
-def _serpapi_search(query: str, limit: int, api_key_env: str, endpoint: str) -> list[dict[str, Any]]:
-    api_key = _required_env(api_key_env)
+def _serpapi_search(query: str, limit: int, api_key_env: str, api_key_value: str, endpoint: str) -> list[dict[str, Any]]:
+    api_key = api_key_value or _required_env(api_key_env)
     params = urllib.parse.urlencode({"engine": "google", "q": query, "api_key": api_key, "num": limit})
     data = _get_json(f"{endpoint}?{params}", 30.0)
     return [

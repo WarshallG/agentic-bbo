@@ -702,8 +702,13 @@ class GeneralAgentBBOAlgorithm(Algorithm):
             tool_path.chmod(0o755)
         except OSError:
             pass
+        web_key_env = self.config.web_search_api_key_env
+        if not web_key_env and self.config.web_search_provider.strip().lower().replace("-", "_") == "serpapi":
+            web_key_env = "SERPAPI_API_KEY"
+        web_search_api_key = os.environ.get(web_key_env or "")
+        config_path = self._workspace_dir / "bbo_tool_config.json"
         dump_json(
-            self._workspace_dir / "bbo_tool_config.json",
+            config_path,
             {
                 "workspace_dir": str(self._workspace_dir),
                 "tool_calls_path": str(self._agent_tool_calls_path),
@@ -715,9 +720,14 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 "sandbox_fusion_base_url": self.config.sandbox_fusion_base_url or os.environ.get("SANDBOX_FUSION_BASE_URL"),
                 "web_search_provider": self.config.web_search_provider,
                 "web_search_api_key_env": self.config.web_search_api_key_env,
+                "web_search_api_key": web_search_api_key,
                 "serpapi_endpoint": os.environ.get("SERPAPI_ENDPOINT"),
             },
         )
+        try:
+            config_path.chmod(0o600)
+        except OSError:
+            pass
 
     def _write_workspace_python_api(self) -> None:
         assert self._workspace_dir is not None
@@ -848,6 +858,25 @@ class GeneralAgentBBOAlgorithm(Algorithm):
     def _build_agent_prompt(self, *, call_id: str, attempt_index: int) -> str:
         task_spec = self._require_task_spec()
         best_score = None if self._best is None else self._best.score
+        audit_instruction = ""
+        if call_id == "agent_call_00000" and attempt_index == 0:
+            audit_instruction = textwrap.dedent(
+                """
+
+                Tool audit requirement for this first agent call:
+                Before emitting final candidates, write and run a small Python script
+                in this workspace that imports `BBO` from `bbo_tools` and calls every
+                available workspace BBO tool/API at least once:
+                `task_context`, `manifest`, `search_space`, `objective`,
+                `tool_specs`, `history`, `incumbent`, `sample`, `analyze_history`,
+                `memory_write`, `memory_read`, `code_interpreter`, `web_search`,
+                `fetch_url`, and `validate`.
+                Use a harmless public fetch target such as `https://example.com`,
+                use `web_search` with a task-relevant query, and validate the final
+                candidates after the audit. This audit is for logging/observability;
+                still return only the strict final candidates JSON on stdout.
+                """
+            ).rstrip()
         return textwrap.dedent(
             f"""
             You are an optimization agent for task `{task_spec.name}`.
@@ -870,6 +899,7 @@ class GeneralAgentBBOAlgorithm(Algorithm):
 
             Current best primary objective: {best_score}
             Objective direction: {task_spec.primary_objective.direction.value}
+            {audit_instruction}
 
             Produce candidate configurations now. Your entire stdout must be the
             strict JSON object described in `instructions.md`.
@@ -936,6 +966,13 @@ class GeneralAgentBBOAlgorithm(Algorithm):
                 env["OPENAI_BASE_URL"] = self.config.api_base
             elif provider == "anthropic":
                 env["ANTHROPIC_BASE_URL"] = self.config.api_base
+        web_key_env = self.config.web_search_api_key_env
+        if not web_key_env and self.config.web_search_provider.strip().lower().replace("-", "_") == "serpapi":
+            web_key_env = "SERPAPI_API_KEY"
+        if web_key_env and os.environ.get(web_key_env):
+            env[web_key_env] = os.environ[web_key_env]
+        if os.environ.get("SERPAPI_ENDPOINT"):
+            env["SERPAPI_ENDPOINT"] = os.environ["SERPAPI_ENDPOINT"]
         return env
 
     def _openai_compatible_config(self) -> dict[str, Any]:
