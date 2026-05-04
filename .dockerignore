@@ -1,0 +1,17 @@
+.git
+.gitignore
+.pytest_cache
+.venv
+.venv-*
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+artifacts
+tmp
+
+workflow/workflow_backup
+workflow/task_method_smoke_matrix_20260503_v1/runs
+
+agentic_bbo_benchmark.egg-info

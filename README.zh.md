@@ -56,6 +56,9 @@
 算法实现按家族组织。
 当前家族为：
 
+- `bbo/algorithms/agentic/`
+  - `llambo.py`
+  - `opro.py`
 - `bbo/algorithms/model_based/`
   - `optuna_tpe.py`
 - `bbo/algorithms/traditional/`
@@ -64,20 +67,19 @@
 
 ### `bbo/tasks/`
 
-任务实现同样按家族组织。
-当前家族为：
+任务按家族组织；详情可参见 `bbo/tasks/dbtune/README.md` 等包内说明。
 
-- `bbo/tasks/synthetic/`
-  - `branin.py`
-  - `sphere.py`
-  - `base.py`
+- `bbo/tasks/synthetic/`：合成玩具目标（`branin.py`、`sphere.py`、`base.py`）
+- `bbo/tasks/bboplace/`：HTTP 驱动的 BBOPlace benchmark 任务（`task.py`）
+- `bbo/tasks/scientific/`：表格 / 科学计算类 BO 教程任务（`registry.py`、各任务模块、`data/` 资源）
+- `bbo/tasks/dbtune/`：数据库 knob 调优（离线 sklearn surrogate、HTTP MariaDB/sysbench、可选 HTTP surrogate；含 `assets/`、`registry.py`、`docker_mariadb/`、`docker_surrogate/`）
 
 ### `bbo/task_descriptions/`
 
 这里存放 benchmark 上下文所需的标准化任务文档。
 当前仓库包含：
 
-- `branin_demo` 和 `sphere_demo` 的可执行 benchmark 描述
+- `branin_demo`、`sphere_demo` 和 `bboplace_bench` 的可执行 benchmark 描述
 - 一个面向协作者的任务封装示例
 - 一个可复用模板
 - 中英文双语文档副本
@@ -89,6 +91,14 @@
 ```bash
 uv sync --extra dev
 ```
+
+如果你想把 benchmark 任务统一到一个宿主 Python 环境里运行，建议从轻量的 `bboplace` wrapper 环境出发，直接安装：
+
+```bash
+uv sync --extra dev --extra task-host
+```
+
+`task-host` 是推荐的统一宿主环境：它把 scientific task、Optuna 和 HTTP client 依赖合并进来，但继续把不兼容的 evaluator runtime 留在 sidecar 里隔离，例如 MariaDB/sysbench 镜像，以及旧版 sklearn 的 Python 3.7 surrogate 服务。
 
 如果需要 ConfigSpace 互操作辅助功能，可额外安装：
 
@@ -107,6 +117,8 @@ uv sync --extra dev --extra optuna
 ```bash
 uv sync --extra dev --extra optuna --extra bo-tutorial
 ```
+
+如果你希望直接得到一个覆盖 `bboplace`、scientific task 和 HTTP task client 的统一宿主环境，可以直接使用上面的 `task-host` extra，效果等价于把这些常用任务依赖合并到一套环境里。
 
 ## 运行 demo
 
@@ -140,6 +152,18 @@ uv run python examples/run_pycma_demo.py
 uv run python examples/run_optuna_tpe_demo.py
 ```
 
+### LLAMBO baseline
+
+```bash
+uv run python examples/run_llambo_demo.py
+```
+
+### OPRO baseline
+
+```bash
+uv run python examples/run_opro_demo.py
+```
+
 ### 直接使用 CLI
 
 ```bash
@@ -149,6 +173,29 @@ uv run python -m bbo.run \
   --max-evaluations 36 \
   --sigma-fraction 0.18 \
   --popsize 6
+```
+
+### BBOPlace HTTP 任务
+
+如果你的 Docker 安装带有 Compose，并且你想把 `bboplace`、MariaDB 评估器和 surrogate 评估器一起拉起，可以在仓库根目录执行：
+
+```bash
+docker compose -f docker-compose.task-services.yml up -d --build
+```
+
+如果只想单独启动公开发布的 BBOPlace evaluator service，再执行：
+
+```bash
+docker pull gaozhixuan/bboplace-bench
+docker run --rm -p 8070:8080 gaozhixuan/bboplace-bench
+```
+
+任务默认连 `http://127.0.0.1:8070`（宿主机 **8070** 映射到容器内 **8080**，避免与 MariaDB 评估器默认 **8080** 冲突）。需要时可设 `BBOPLACE_BASE_URL`。
+
+然后在本仓库里执行一个快速 smoke test：
+
+```bash
+uv run python -m bbo.run --algorithm random_search --task bboplace_bench --max-evaluations 1
 ```
 
 Optuna TPE 的公开算法名是 `optuna_tpe`，并且支持 mixed/categorical search space：
@@ -161,6 +208,69 @@ uv run python -m bbo.run \
 ```
 
 `suite` 仍然只包含传统算法 `random_search` 与 `pycma`，不会把 `optuna_tpe` 混进去。
+
+LLAMBO 的公开算法名是 `llambo`。默认的 `heuristic` backend 是一个离线 smoke-test 路径，在不依赖网络的情况下保留了 LLAMBO 的 acquisition/surrogate 两阶段流程：
+
+```bash
+uv run python -m bbo.run \
+  --algorithm llambo \
+  --task branin_demo \
+  --max-evaluations 12 \
+  --llambo-backend heuristic
+```
+
+如果要走在线 OpenAI 路径，建议把凭证和 endpoint 选择放在用户可见的 runner / CLI 层，而不是写死在底层算法里。API key 放环境变量，模型、base-url、timeout 等通过 CLI 指定：
+
+```bash
+export OPENAI_API_KEY=your_key_here
+uv run python -m bbo.run \
+  --algorithm llambo \
+  --task branin_demo \
+  --max-evaluations 12 \
+  --llambo-backend openai \
+  --llambo-model gpt-4o-mini \
+  --llambo-openai-api-key-env OPENAI_API_KEY \
+  --llambo-openai-timeout-seconds 30
+```
+
+如果需要自定义 endpoint，也可以在 runner 层通过 `--llambo-openai-base-url`、`--llambo-openai-organization`、`--llambo-openai-project` 指定。
+
+其他调参开关：
+- `--llambo-openai-max-retries`（默认 3）—— 网络出错时指数退避重试。
+- `--no-llambo-openai-use-structured-outputs`—— 关闭 ``json_schema`` 结构化输出，用于不支持该特性的兼容 API；backend 会自动降级为普通文本补全 + 正则解析。
+
+在线 backend 的现成示例脚本位于 `examples/run_llambo_openai_demo.py`。
+
+OPRO 的公开算法名是 `opro`。默认的 `heuristic` backend 是一个离线 smoke-test 路径，它把原始 OPRO 的“历史配置/分数元提示词”模式适配到了本仓库的统一搜索空间接口上：
+
+```bash
+uv run python -m bbo.run \
+  --algorithm opro \
+  --task branin_demo \
+  --max-evaluations 12 \
+  --opro-backend heuristic
+```
+
+如果要走在线 OpenAI 路径，凭证和 endpoint 配置与 LLAMBO 保持一致，都放在 runner / CLI 层：
+
+```bash
+export OPENAI_API_KEY=your_key_here
+uv run python -m bbo.run \
+  --algorithm opro \
+  --task branin_demo \
+  --max-evaluations 12 \
+  --opro-backend openai \
+  --opro-model gpt-4o-mini \
+  --opro-openai-api-key-env OPENAI_API_KEY \
+  --opro-openai-timeout-seconds 30
+```
+
+如果需要自定义 endpoint，也可以在 runner 层通过 `--opro-openai-base-url`、`--opro-openai-organization`、`--opro-openai-project` 指定。
+
+其他调参开关：
+- `--opro-openai-max-retries`（默认 3）—— 网络出错时指数退避重试。
+
+在线 backend 的现成示例脚本位于 `examples/run_opro_openai_demo.py`。
 
 ## 输出结果
 
@@ -237,10 +347,12 @@ uv run python -m bbo.run --algorithm optuna_tpe --task branin_demo --max-evaluat
 uv run python -m bbo.run --algorithm optuna_tpe --task her_demo --max-evaluations 6 --results-root artifacts/optuna_tpe_smoke
 uv run python -m bbo.run --algorithm optuna_tpe --task oer_demo --max-evaluations 6 --results-root artifacts/optuna_tpe_smoke
 uv run python -m bbo.run --algorithm optuna_tpe --task molecule_qed_demo --max-evaluations 6 --results-root artifacts/optuna_tpe_smoke
+uv run python -m bbo.run --algorithm opro --task branin_demo --max-evaluations 6 --results-root artifacts/opro_smoke
 ```
 
 ## 当前参考 benchmark
 
 - `branin_demo`：二维 synthetic benchmark，适合可视化和优化器比较
 - `sphere_demo`：凸型 synthetic benchmark，适合 smoke test 与 replay/resume 验证
+- `bboplace_bench`：通过 HTTP 接入 BBOPlace-Bench MGO evaluator 的 macro-placement benchmark
 - `collaborator_problem_demo`：偏文档化的示例，用来展示如何封装一个更真实的 benchmark 问题

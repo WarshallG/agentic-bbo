@@ -10,24 +10,28 @@ from bbo.run import run_single_experiment
 from bbo.tasks import (
     ALL_TASK_NAMES,
     BH_TASK_NAME,
+    GUACAMOL_QED_TASK_NAME,
     HEA_TASK_NAME,
     HER_FEATURES,
     HER_TASK_NAME,
     MOLECULE_TASK_NAME,
     OER_TASK_NAME,
+    QED_SELFIES_TASK_NAME,
     create_bh_task,
+    create_guacamol_qed_task,
     create_hea_task,
     create_her_task,
     create_molecule_qed_task,
     create_oer_task,
+    create_qed_selfies_task,
 )
-from bbo.tasks.scientific import CACHE_ROOT_ENV, SOURCE_ROOT_ENV
+from bbo.tasks.scientific import CACHE_ROOT_ENV, SOURCE_ROOT_ENV, VENDORED_SOURCE_ROOT
 
 
 def _require_bo_tutorial_source() -> Path:
-    source_root = Path(os.environ.get(SOURCE_ROOT_ENV, "/tmp/bo_tutorial_her_source"))
+    source_root = Path(os.environ.get(SOURCE_ROOT_ENV, str(VENDORED_SOURCE_ROOT)))
     if not source_root.exists():
-        pytest.skip("BO tutorial source checkout is not available for scientific-task tests.")
+        pytest.skip("Bundled scientific task datasets are not available in the workspace.")
     return source_root
 
 
@@ -46,7 +50,9 @@ def test_scientific_registry_contains_all_tasks() -> None:
     assert HEA_TASK_NAME in ALL_TASK_NAMES
     assert OER_TASK_NAME in ALL_TASK_NAMES
     assert BH_TASK_NAME in ALL_TASK_NAMES
+    assert GUACAMOL_QED_TASK_NAME in ALL_TASK_NAMES
     assert MOLECULE_TASK_NAME in ALL_TASK_NAMES
+    assert QED_SELFIES_TASK_NAME in ALL_TASK_NAMES
 
 
 def test_her_task_spec_and_sanity(scientific_env: Path) -> None:
@@ -128,6 +134,68 @@ def test_molecule_qed_task_sanity(scientific_env: Path) -> None:
     assert 0.0 <= result.metrics["qed"] <= 1.0
 
 
+def test_molecule_qed_task_smiles_limit(scientific_env: Path) -> None:
+    pytest.importorskip("rdkit")
+    task = create_molecule_qed_task(
+        max_evaluations=3,
+        seed=5,
+        source_root=scientific_env,
+        smiles_limit=64,
+    )
+
+    assert len(task.spec.search_space["SMILES"].choices) == 64
+    assert task.dataset_summary["smiles_limit"] == 64
+
+
+def test_qed_selfies_task_sanity(tmp_path: Path) -> None:
+    pytest.importorskip("rdkit")
+    pytest.importorskip("selfies")
+    source_root = _require_bo_tutorial_source()
+    task = create_qed_selfies_task(
+        max_evaluations=3,
+        seed=5,
+        source_root=source_root,
+        cache_root=tmp_path / "dataset_cache",
+        max_selfies_tokens=8,
+        vocabulary_source_limit=64,
+    )
+    report = task.sanity_check()
+
+    assert report.ok
+    assert task.spec.name == QED_SELFIES_TASK_NAME
+    assert task.spec.primary_objective.name == "qed_loss"
+    assert report.metadata["selfies_vocabulary_size"] > 0
+    assert task.spec.search_space.names()[0] == "selfies_token_00"
+
+    result = task.evaluate(TrialSuggestion(config=task.spec.search_space.defaults()))
+    assert result.success
+    assert result.metadata["valid_smiles"]
+    assert 0.0 <= result.objectives["qed_loss"] <= 1.0
+    assert 0.0 <= result.metrics["qed"] <= 1.0
+
+    ethanol = task.evaluate(TrialSuggestion(config=task.config_from_smiles("CCO")))
+    assert ethanol.success
+    assert ethanol.metadata["valid_smiles"]
+    assert ethanol.metadata["smiles"]
+
+
+def test_guacamol_qed_task_sanity() -> None:
+    pytest.importorskip("rdkit")
+    task = create_guacamol_qed_task(max_evaluations=3, seed=23)
+    report = task.sanity_check()
+
+    assert report.ok
+    assert task.spec.name == GUACAMOL_QED_TASK_NAME
+    assert task.spec.primary_objective.name == "guacamol_qed_loss"
+    assert report.metadata["candidate_pool_size"] > 0
+    assert report.metadata["valid_candidate_count"] > 0
+
+    result = task.evaluate(TrialSuggestion(config=task.spec.search_space.defaults()))
+    assert result.success
+    assert 0.0 <= result.objectives["guacamol_qed_loss"] <= 1.0
+    assert 0.0 <= result.metrics["guacamol_qed_score"] <= 1.0
+
+
 @pytest.mark.parametrize(
     "task_name",
     [HER_TASK_NAME, HEA_TASK_NAME, OER_TASK_NAME, BH_TASK_NAME],
@@ -149,7 +217,7 @@ def test_scientific_random_search_smoke(
     assert summary["trial_count"] == 3
     assert summary["best_primary_objective"] is not None
     assert Path(summary["results_jsonl"]).exists()
-    assert len(summary["plot_paths"]) == 2
+    assert len(summary["plot_paths"]) == 4
     for plot_path in summary["plot_paths"]:
         path = Path(plot_path)
         assert path.exists()
@@ -170,7 +238,79 @@ def test_molecule_random_search_smoke(scientific_env: Path, tmp_path: Path) -> N
     assert summary["trial_count"] == 3
     assert summary["best_primary_objective"] is not None
     assert Path(summary["results_jsonl"]).exists()
-    assert len(summary["plot_paths"]) == 2
+    assert len(summary["plot_paths"]) == 4
+    for plot_path in summary["plot_paths"]:
+        path = Path(plot_path)
+        assert path.exists()
+        assert path.stat().st_size > 0
+
+
+def test_qed_selfies_optuna_smoke(tmp_path: Path) -> None:
+    pytest.importorskip("optuna")
+    pytest.importorskip("rdkit")
+    pytest.importorskip("selfies")
+    source_root = _require_bo_tutorial_source()
+    summary = run_single_experiment(
+        task_name=QED_SELFIES_TASK_NAME,
+        algorithm_name="optuna_tpe",
+        seed=5,
+        max_evaluations=3,
+        task_kwargs={
+            "source_root": source_root,
+            "cache_root": tmp_path / "dataset_cache",
+            "max_selfies_tokens": 8,
+            "vocabulary_source_limit": 64,
+        },
+        results_root=tmp_path,
+        resume=False,
+        generate_plots=False,
+    )
+
+    assert summary["trial_count"] == 3
+    assert summary["best_primary_objective"] is not None
+    assert Path(summary["results_jsonl"]).exists()
+
+
+def test_qed_selfies_random_search_smoke(tmp_path: Path) -> None:
+    pytest.importorskip("rdkit")
+    pytest.importorskip("selfies")
+    source_root = _require_bo_tutorial_source()
+    summary = run_single_experiment(
+        task_name=QED_SELFIES_TASK_NAME,
+        algorithm_name="random_search",
+        seed=5,
+        max_evaluations=3,
+        task_kwargs={
+            "source_root": source_root,
+            "cache_root": tmp_path / "dataset_cache",
+            "max_selfies_tokens": 8,
+            "vocabulary_source_limit": 64,
+        },
+        results_root=tmp_path,
+        resume=False,
+        generate_plots=False,
+    )
+
+    assert summary["trial_count"] == 3
+    assert summary["best_primary_objective"] is not None
+    assert Path(summary["results_jsonl"]).exists()
+
+
+def test_guacamol_qed_random_search_smoke(tmp_path: Path) -> None:
+    pytest.importorskip("rdkit")
+    summary = run_single_experiment(
+        task_name=GUACAMOL_QED_TASK_NAME,
+        algorithm_name="random_search",
+        seed=5,
+        max_evaluations=3,
+        results_root=tmp_path,
+        resume=False,
+    )
+
+    assert summary["trial_count"] == 3
+    assert summary["best_primary_objective"] is not None
+    assert Path(summary["results_jsonl"]).exists()
+    assert len(summary["plot_paths"]) == 4
     for plot_path in summary["plot_paths"]:
         path = Path(plot_path)
         assert path.exists()
