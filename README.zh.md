@@ -92,6 +92,14 @@
 uv sync --extra dev
 ```
 
+如果你想把 benchmark 任务统一到一个宿主 Python 环境里运行，建议从轻量的 `bboplace` wrapper 环境出发，直接安装：
+
+```bash
+uv sync --extra dev --extra task-host
+```
+
+`task-host` 是推荐的统一宿主环境：它把 scientific task、Optuna 和 HTTP client 依赖合并进来，但继续把不兼容的 evaluator runtime 留在 sidecar 里隔离，例如 MariaDB/sysbench 镜像，以及旧版 sklearn 的 Python 3.7 surrogate 服务。
+
 如果需要 ConfigSpace 互操作辅助功能，可额外安装：
 
 ```bash
@@ -109,6 +117,8 @@ uv sync --extra dev --extra optuna
 ```bash
 uv sync --extra dev --extra optuna --extra bo-tutorial
 ```
+
+如果你希望直接得到一个覆盖 `bboplace`、scientific task 和 HTTP task client 的统一宿主环境，可以直接使用上面的 `task-host` extra，效果等价于把这些常用任务依赖合并到一套环境里。
 
 ## 运行 demo
 
@@ -167,7 +177,13 @@ uv run python -m bbo.run \
 
 ### BBOPlace HTTP 任务
 
-先启动公开发布的 evaluator service：
+如果你的 Docker 安装带有 Compose，并且你想把 `bboplace`、MariaDB 评估器和 surrogate 评估器一起拉起，可以在仓库根目录执行：
+
+```bash
+docker compose -f docker-compose.task-services.yml up -d --build
+```
+
+如果只想单独启动公开发布的 BBOPlace evaluator service，再执行：
 
 ```bash
 docker pull gaozhixuan/bboplace-bench

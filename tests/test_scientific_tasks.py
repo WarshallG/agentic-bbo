@@ -134,6 +134,19 @@ def test_molecule_qed_task_sanity(scientific_env: Path) -> None:
     assert 0.0 <= result.metrics["qed"] <= 1.0
 
 
+def test_molecule_qed_task_smiles_limit(scientific_env: Path) -> None:
+    pytest.importorskip("rdkit")
+    task = create_molecule_qed_task(
+        max_evaluations=3,
+        seed=5,
+        source_root=scientific_env,
+        smiles_limit=64,
+    )
+
+    assert len(task.spec.search_space["SMILES"].choices) == 64
+    assert task.dataset_summary["smiles_limit"] == 64
+
+
 def test_qed_selfies_task_sanity(tmp_path: Path) -> None:
     pytest.importorskip("rdkit")
     pytest.importorskip("selfies")

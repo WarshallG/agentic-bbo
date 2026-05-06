@@ -19,6 +19,35 @@ dependencies = [
 dev = [
   "pytest>=8.3.0",
 ]
+benchmark-main = [
+  "ConfigSpace>=1.2.0",
+  "flask>=3.0",
+  "igraph>=0.11,<0.12",
+  "joblib>=1.4",
+  "openpyxl>=3.1",
+  "optuna>=4.0",
+  "pandas>=1.0.1",
+  "psutil>=5.9",
+  "ray>=2.10,<3",
+  "rdkit",
+  "scikit-learn>=1.5.0",
+  "selfies>=2.1.0",
+  "tabpfn>=6.0.0",
+  "scipy>=1.1",
+  "tqdm",
+]
+task-host = [
+  "ConfigSpace>=1.2.0",
+  "joblib>=1.4",
+  "openpyxl>=3.1",
+  "optuna>=4.0",
+  "pandas>=1.0.1",
+  "rdkit",
+  "scikit-learn>=1.5.0",
+  "selfies>=2.1.0",
+  "scipy>=1.1",
+  "tqdm",
+]
 surrogate = [
   "joblib>=1.4",
   "scikit-learn>=1.5.0",
@@ -89,6 +118,14 @@ conflicts = [
   [
     { extra = "pfns4bo" },
     { extra = "tabpfn" },
+  ],
+  [
+    { extra = "task-host" },
+    { extra = "pfns4bo" },
+  ],
+  [
+    { extra = "benchmark-main" },
+    { extra = "pfns4bo" },
   ],
 ]
 

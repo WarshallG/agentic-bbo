@@ -93,6 +93,14 @@ Create the managed environment with `uv`:
 uv sync --extra dev
 ```
 
+To provision one merged host environment for benchmark tasks, start from the lightweight BBOPlace wrapper and layer in the scientific / HTTP-client dependencies with:
+
+```bash
+uv sync --extra dev --extra task-host
+```
+
+`task-host` is the recommended host-side stack for mixed-task batches. It keeps the incompatible evaluator runtimes out of the Python 3.11 environment: MariaDB/sysbench still lives in its own Docker image, and the legacy sklearn surrogate runtime still lives in the Python 3.7 sidecar.
+
 Optional interoperability helpers for ConfigSpace can be installed with:
 
 ```bash
@@ -116,6 +124,8 @@ Scientific smoke tests for `her_demo`, `oer_demo`, and `molecule_qed_demo` addit
 ```bash
 uv sync --extra dev --extra optuna --extra bo-tutorial
 ```
+
+`uv sync --extra dev --extra task-host` is the equivalent merged install when you want one environment that covers BBOPlace, scientific tasks, and the HTTP task clients together.
 
 ## Running the demos
 
@@ -182,7 +192,13 @@ uv run python -m bbo.run \
 
 ### BBOPlace HTTP task
 
-Start the published evaluator service first:
+If your Docker installation includes Compose and you want the full task-side service stack (`bboplace` + MariaDB + surrogate HTTP), start it from the repository root with:
+
+```bash
+docker compose -f docker-compose.task-services.yml up -d --build
+```
+
+To start only the published BBOPlace evaluator service, run:
 
 ```bash
 docker pull gaozhixuan/bboplace-bench

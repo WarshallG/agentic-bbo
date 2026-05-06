@@ -65,6 +65,7 @@ class MoleculeTaskConfig:
     source_root: Path | None = None
     cache_root: Path | None = None
     description_dir: Path | None = None
+    smiles_limit: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -81,6 +82,11 @@ class MoleculeQEDTask(Task):
             cache_root=self.config.cache_root,
         )
         self._smiles_list = load_zinc_smiles(self._asset.cache_path)
+        if self.config.smiles_limit is not None:
+            limit = int(self.config.smiles_limit)
+            if limit <= 0:
+                raise ValueError("smiles_limit must be positive when provided.")
+            self._smiles_list = self._smiles_list[:limit]
         if not self._smiles_list:
             raise ValueError("The molecule/QED dataset must contain at least one SMILES string.")
 
@@ -95,6 +101,7 @@ class MoleculeQEDTask(Task):
         self._dataset_summary = {
             **self._asset.as_metadata(),
             "item_count": int(len(self._smiles_list)),
+            "smiles_limit": None if self.config.smiles_limit is None else int(self.config.smiles_limit),
             "archive_member": MOLECULE_ARCHIVE_MEMBER,
             "first_valid_smiles": self._first_valid_smiles,
         }
@@ -171,6 +178,7 @@ def create_molecule_qed_task(
     source_root: Path | None = None,
     cache_root: Path | None = None,
     description_dir: Path | None = None,
+    smiles_limit: int | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> MoleculeQEDTask:
     return MoleculeQEDTask(
@@ -180,6 +188,7 @@ def create_molecule_qed_task(
             source_root=source_root,
             cache_root=cache_root,
             description_dir=description_dir,
+            smiles_limit=smiles_limit,
             metadata=dict(metadata or {}),
         )
     )

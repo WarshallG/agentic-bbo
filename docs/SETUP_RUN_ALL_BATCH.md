@@ -101,30 +101,26 @@ cd Agentbbo
 
 ---
 
-## 4. 安装 Python 依赖（**必须**含 Optuna 与 scientific 全量任务）
+## 4. 安装 Python 依赖（推荐统一用 `task-host`）
 
-`run_all_registered_tasks.py` 默认算法为 **`optuna_tpe`**，且会跑 **`her_demo` / `oer_demo` / `molecule_qed_demo` 等**需要 **RDKit 等**的 scientific 任务。按主 **`README.md`** 建议执行：
+`run_all_registered_tasks.py` 默认算法为 **`optuna_tpe`**，且会跑 **`her_demo` / `oer_demo` / `molecule_qed_demo` 等**需要 **RDKit 等**的 scientific 任务。推荐直接安装仓库里新增的统一宿主环境：
 
 ```bash
 cd Agentbbo
-uv sync --extra dev --extra optuna --extra bo-tutorial
+uv sync --extra dev --extra task-host
 ```
 
 含义简述：
 
-- **`optuna`**：提供 `optuna_tpe` 及 Optuna 依赖。  
-- **`bo-tutorial`**：提供 RDKit / pandas 等，用于 `molecule_qed_demo`、部分 scientific smoke。  
+- **`task-host`**：把 `optuna`、scientific task 依赖、ConfigSpace 互操作依赖和常用本地数据处理包合并成一套宿主环境。  
 - **`dev`**：pytest 等（便于自检）。  
+- **隔离策略**：不兼容的 evaluator runtime **不进宿主 Python 3.11 环境**。MariaDB/sysbench 继续放在自己的 Docker 镜像里，旧版 sklearn surrogate 继续放在 Python 3.7 sidecar 里。
 
-> **未安装 `optuna` extra 时，运行到 `optuna_tpe` 会 ImportError/失败。**
-
-**可选**（一般批跑不强制；仅当你要本地进程内调 surrogate 或部分测试）：
+如果你不想使用 `task-host` 这个聚合 extra，近似等价的旧命令仍然是：
 
 ```bash
-uv sync --extra dev --extra optuna --extra bo-tutorial --extra surrogate
+uv sync --extra dev --extra optuna --extra bo-tutorial --extra interop
 ```
-
-**可选**：若你将来要用 ConfigSpace 互操作，再加 `--extra interop`（与当前批跑脚本的**最小**成功路径**无**硬性绑定，除非你在本地代码里用到了 `from_configspace`）。
 
 **自检**（应无报错）：
 
@@ -156,6 +152,14 @@ uv run python -c "import optuna; from rdkit import Chem; from bbo.tasks import A
 export AGENTBBO_HTTP_EVAL_TIMEOUT_SEC=600
 export AGENTBBO_HTTP_SURROGATE_TIMEOUT_SEC=300
 ```
+
+如果你的 Docker 安装提供 `docker compose`，并且你希望把三个服务一起拉起，而不是分别执行 `docker pull` / `docker build` / `docker run`，可以直接在仓库根目录执行：
+
+```bash
+docker compose -f docker-compose.task-services.yml up -d --build
+```
+
+这个 compose 文件遵循与代码相同的端口约定：BBOPlace `8070`、MariaDB `8080`、Surrogate `8090`。
 
 ---
 
@@ -300,7 +304,7 @@ uv run python examples/run_all_registered_tasks.py
 
 - [ ] Git、Docker、可 `docker build` / `docker run`  
 - [ ] `uv`、项目 `cd Agentbbo`  
-- [ ] `uv sync --extra dev --extra optuna --extra bo-tutorial`  
+- [ ] `uv sync --extra dev --extra task-host`  
 - [ ] BBOPlace：`docker pull` + `run -d -p 8070:8080`  
 - [ ] MariaDB 评估：`docker_mariadb` 下 build + `run -d -p 8080:8080`，`curl /health`  
 - [ ] Surrogate 评估：`dbtune` 下 build（assets 已就位）+ `run -d -p 8090:8090`，`curl /health`  
@@ -316,7 +320,8 @@ uv run python examples/run_all_registered_tasks.py
 | `examples/run_all_registered_tasks.py` | 批跑入口 |
 | `examples/run_all_registered_tasks.md` | 脚本设计说明 |
 | `database.md` | HTTP 任务与端口、MariaDB / Surrogate / BBOPlace 对照 |
-| `README.md` / `README.zh.md` | 安装与 Optuna / bo-tutorial 说明 |
+| `README.md` / `README.zh.md` | 安装与 `task-host` / extras 说明 |
+| `docker-compose.task-services.yml` | 三个任务 sidecar 的统一启动文件 |
 | `bbo/task_descriptions/bboplace_bench/environment.md` | BBOPlace 环境与 `BBOPLACE_BASE_URL` |
 | `bbo/tasks/dbtune/docker_mariadb/` | MariaDB 镜像与构建说明 |
 | `bbo/tasks/dbtune/docker_surrogate/README.md` | Surrogate 镜像与 API |
