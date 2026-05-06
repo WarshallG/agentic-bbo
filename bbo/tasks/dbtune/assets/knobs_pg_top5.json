@@ -1,0 +1,52 @@
+{
+    "max_worker_processes": {
+        "default": 8,
+        "context": "postmaster",
+        "scope": "global",
+        "type": "integer",
+        "min": 0,
+        "max": 262143,
+        "important_rank": 1,
+        "shap_value": 4687.586861894683
+    },
+    "shared_buffers": {
+        "default": 1024,
+        "context": "postmaster",
+        "scope": "global",
+        "type": "integer",
+        "min": 16,
+        "max": 1000000,
+        "important_rank": 2,
+        "shap_value": 3064.1351311347576
+    },
+    "wal_buffers": {
+        "default": -1,
+        "context": "postmaster",
+        "scope": "global",
+        "type": "integer",
+        "min": -1,
+        "max": 262143,
+        "important_rank": 3,
+        "shap_value": 461.8874222738888
+    },
+    "checkpoint_completion_target": {
+        "default": 0.5,
+        "context": "sighup",
+        "scope": "global",
+        "type": "float",
+        "min": 0.0,
+        "max": 1.0,
+        "important_rank": 4,
+        "shap_value": 460.65777398232626
+    },
+    "backend_flush_after": {
+        "default": 0,
+        "context": "user",
+        "scope": "global",
+        "type": "integer",
+        "min": 0,
+        "max": 256,
+        "important_rank": 5,
+        "shap_value": 316.03087292592073
+    }
+}

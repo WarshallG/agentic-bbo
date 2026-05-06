@@ -155,13 +155,20 @@ class Experimenter:
 
     def _normalize_suggestion(self, suggestion: TrialSuggestion, next_trial_id: int) -> TrialSuggestion:
         trial_id = next_trial_id if suggestion.trial_id is None else suggestion.trial_id
-        budget = suggestion.budget if suggestion.budget is not None else self.task.spec.default_budget
+        if suggestion.budget is not None:
+            if not self.task.spec.supports_budget:
+                raise ValueError(f"Task `{self.task.spec.name}` does not accept suggestion budgets.")
+            budget = suggestion.budget
+        elif self.task.spec.supports_budget:
+            budget = self.task.spec.default_budget
+        else:
+            budget = None
         if budget is not None and self.task.spec.budget_range is not None:
             low, high = self.task.spec.budget_range
             if budget < low or budget > high:
                 raise ValueError(f"Suggested budget {budget} is outside task budget_range {self.task.spec.budget_range!r}.")
 
-        normalized_config = self.task.spec.search_space.coerce_config(suggestion.config, use_defaults=True)
+        normalized_config = self.task.spec.search_space.coerce_config(suggestion.config, use_defaults=False)
         return TrialSuggestion(
             trial_id=trial_id,
             config=normalized_config,

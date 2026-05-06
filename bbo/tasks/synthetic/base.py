@@ -115,7 +115,7 @@ class SyntheticFunctionTask(Task):
             "distance_to_known_optimum": best_distance,
             "dimension": float(self.definition.dimension),
         }
-        for name, scalar in zip(self.spec.search_space.names(), vector, strict=True):
+        for name, scalar in zip(self.spec.search_space.names(), vector):
             metrics[f"coord::{name}"] = float(scalar)
 
         return EvaluationResult(
@@ -158,7 +158,7 @@ class SyntheticFunctionTask(Task):
                 if len(optimum) != self.definition.dimension:
                     report.add_error("known_optimum_shape", "Known optimum has the wrong dimensionality.")
                     continue
-                inside = all(low <= value <= high for value, (low, high) in zip(optimum, bounds, strict=True))
+                inside = all(low <= value <= high for value, (low, high) in zip(optimum, bounds))
                 if not inside:
                     report.add_warning("optimum_out_of_bounds", f"Known optimum {optimum!r} lies outside the search space.")
         except Exception as exc:  # pragma: no cover - defensive guard

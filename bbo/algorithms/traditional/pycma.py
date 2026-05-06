@@ -8,7 +8,13 @@ from typing import Any
 import cma
 import numpy as np
 
-from ...core import ExternalOptimizerAdapter, TrialObservation, TrialSuggestion
+from ...core import (
+    ContinuousSearchSpaceConverter,
+    ExternalOptimizerAdapter,
+    TrialObservation,
+    TrialSuggestion,
+    build_continuous_converter,
+)
 
 
 @dataclass
@@ -42,6 +48,7 @@ class PyCmaAlgorithm(ExternalOptimizerAdapter):
         self._evaluated_batch: dict[int, tuple[np.ndarray, float]] = {}
         self._current_batch_size: int = 0
         self._batch_id: int = 0
+        self._continuous_converter: ContinuousSearchSpaceConverter | None = None
 
     @property
     def name(self) -> str:
@@ -52,9 +59,17 @@ class PyCmaAlgorithm(ExternalOptimizerAdapter):
             raise ValueError("PyCmaAlgorithm currently supports exactly one objective.")
         self.bind_task_spec(task_spec)
         search_space = self.require_search_space()
-        bounds = search_space.numeric_bounds()
+        try:
+            bounds = search_space.numeric_bounds()
+            self._continuous_converter = None
+        except TypeError:
+            self._continuous_converter = build_continuous_converter(search_space, strategy="onehot")
+            bounds = self._continuous_converter.continuous_bounds()
         initial_config = task_spec.metadata.get("cma_initial_config", search_space.defaults())
-        x0 = search_space.to_numeric_vector(initial_config)
+        if self._continuous_converter is None:
+            x0 = search_space.to_numeric_vector(initial_config)
+        else:
+            x0 = self._continuous_converter.encode_vector(initial_config)
         widths = bounds[:, 1] - bounds[:, 0]
         sigma0 = float(np.mean(widths) * self.sigma_fraction)
         sigma0 = max(sigma0, 1e-6)
@@ -78,14 +93,19 @@ class PyCmaAlgorithm(ExternalOptimizerAdapter):
     def ask(self) -> TrialSuggestion:
         strategy = self._require_strategy()
         search_space = self.require_search_space()
+        converter = self._continuous_converter
         if not self._pending:
             raw_vectors = strategy.ask()
             self._pending = []
             self._evaluated_batch = {}
             self._current_batch_size = len(raw_vectors)
             for candidate_index, raw_vector in enumerate(raw_vectors):
-                config = search_space.from_numeric_vector(raw_vector, clip=True)
-                clipped_vector = search_space.to_numeric_vector(config)
+                if converter is None:
+                    config = search_space.from_numeric_vector(raw_vector, clip=True)
+                    clipped_vector = search_space.to_numeric_vector(config)
+                else:
+                    config = converter.decode_vector(raw_vector, clip=True)
+                    clipped_vector = converter.encode_vector(config)
                 suggestion = TrialSuggestion(
                     config=config,
                     metadata={
@@ -117,7 +137,10 @@ class PyCmaAlgorithm(ExternalOptimizerAdapter):
             raise ValueError("PyCMA suggestions must preserve `pycma_batch_id` and `pycma_candidate_index` metadata.")
         vector = observation.suggestion.metadata.get("pycma_vector")
         if vector is None:
-            vector_array = self.require_search_space().to_numeric_vector(observation.suggestion.config)
+            if self._continuous_converter is None:
+                vector_array = self.require_search_space().to_numeric_vector(observation.suggestion.config)
+            else:
+                vector_array = self._continuous_converter.encode_vector(observation.suggestion.config)
         else:
             vector_array = np.asarray(vector, dtype=float)
 

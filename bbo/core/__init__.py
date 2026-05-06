@@ -2,6 +2,12 @@
 
 from .algo import Algorithm, Incumbent
 from .adapters import ExternalOptimizerAdapter, from_configspace, to_configspace
+from .conversion import (
+    ContinuousFeatureSpec,
+    ContinuousSearchSpaceConverter,
+    OneHotCategoricalConverter,
+    build_continuous_converter,
+)
 from .description import (
     DescriptionSectionSpec,
     MarkdownDescriptionLoader,
@@ -14,12 +20,18 @@ from .description import (
 )
 from .experimenter import ExperimentConfig, Experimenter, RunSummary
 from .logger import JsonlMetricLogger, MetricLogger, ResumeState
+from .manifest import BBOBenchmarkManifest, DEFAULT_BBO_TOOL_NAMES, build_compatible_BBO_manifest, load_BBO_manifest
 from .plotting import (
+    CumulativeEvalTimeComparisonPlotter,
+    CumulativeEvalTimePlotter,
     Landscape2DPlotter,
     ObjectiveDistributionPlotter,
     OptimizationTracePlotter,
     OptimizerComparisonPlotter,
+    PerTrialEvalTimePlotter,
     PlotArtifact,
+    RegretTracePlotter,
+    ScalarBarPlotter,
     ScientificPlotter,
 )
 from .space import CategoricalParam, FloatParam, IntParam, ParameterSpec, SearchSpace
@@ -35,7 +47,11 @@ from .trial import EvaluationResult, TrialObservation, TrialRecord, TrialStatus,
 
 __all__ = [
     "Algorithm",
+    "BBOBenchmarkManifest",
     "CategoricalParam",
+    "ContinuousFeatureSpec",
+    "ContinuousSearchSpaceConverter",
+    "DEFAULT_BBO_TOOL_NAMES",
     "DescriptionSectionSpec",
     "EvaluationResult",
     "ExperimentConfig",
@@ -44,6 +60,8 @@ __all__ = [
     "FloatParam",
     "Incumbent",
     "IntParam",
+    "CumulativeEvalTimeComparisonPlotter",
+    "CumulativeEvalTimePlotter",
     "JsonlMetricLogger",
     "Landscape2DPlotter",
     "MarkdownDescriptionLoader",
@@ -51,10 +69,14 @@ __all__ = [
     "ObjectiveDirection",
     "ObjectiveDistributionPlotter",
     "ObjectiveSpec",
+    "OneHotCategoricalConverter",
     "OptimizationTracePlotter",
     "OptimizerComparisonPlotter",
     "ParameterSpec",
+    "PerTrialEvalTimePlotter",
     "PlotArtifact",
+    "RegretTracePlotter",
+    "ScalarBarPlotter",
     "ResumeState",
     "RunSummary",
     "STANDARD_TASK_DESCRIPTION_SCHEMA",
@@ -72,7 +94,10 @@ __all__ = [
     "TrialRecord",
     "TrialStatus",
     "TrialSuggestion",
+    "build_continuous_converter",
+    "build_compatible_BBO_manifest",
     "from_configspace",
+    "load_BBO_manifest",
     "to_configspace",
     "write_task_description_template",
 ]

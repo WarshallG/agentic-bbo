@@ -45,6 +45,7 @@ class TaskSpec:
     max_evaluations: int
     default_budget: float | None = None
     budget_range: tuple[float, float] | None = None
+    supports_budget: bool = False
     description_ref: TaskDescriptionRef | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -57,6 +58,8 @@ class TaskSpec:
             raise ValueError("Task must define at least one optimization objective.")
         if self.default_budget is not None and self.default_budget <= 0:
             raise ValueError("default_budget must be positive when provided.")
+        if (self.default_budget is not None or self.budget_range is not None) and not self.supports_budget:
+            raise ValueError("Tasks with budget metadata must set supports_budget=True.")
         if self.budget_range is not None:
             low, high = self.budget_range
             if low <= 0 or high <= 0 or low > high:

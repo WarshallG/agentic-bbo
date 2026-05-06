@@ -5,6 +5,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv*/
 venv/
 
 # Test and type-check caches
@@ -21,8 +22,14 @@ dist/
 
 # Local outputs
 artifacts/
+runs/
 
 # Editor and OS files
 .DS_Store
 .idea/
 .vscode/
+
+runs/
+third_party/
+
+.apikey
