@@ -8,8 +8,10 @@ import os
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable
 
 from ...core import (
@@ -38,6 +40,48 @@ DEFAULT_N_MACRO = 32
 DEFAULT_BENCHMARK = "adaptec1"
 DEFAULT_PLACER = "mgo"
 DEFAULT_HTTP_TIMEOUT_S = 300.0
+
+# 已知 benchmark 在 MGO 下可取的最大 macro 数（与 evaluator 的 min(available, requested) 一致，防止客户端维度过大）
+BENCHMARK_MAX_N_MACRO: Mapping[str, int] = MappingProxyType(
+    {
+        "adaptec1": 543,
+        "adaptec2": 566,
+        "adaptec3": 723,
+        "adaptec4": 1329,
+        "bigblue1": 560,
+        "bigblue3": 1298,
+    }
+)
+
+
+def _benchmark_table_key(benchmark: str) -> str:
+    """Normalize benchmark string for table lookup (handles paths like ispd2005/adaptec1)."""
+    part = benchmark.strip().lower()
+    if "/" in part:
+        return part.rsplit("/", 1)[-1]
+    return part
+
+
+def max_n_macro_for_benchmark(benchmark: str) -> int | None:
+    """Return the packaged macro-count cap for a known benchmark, or None if unknown."""
+    return BENCHMARK_MAX_N_MACRO.get(_benchmark_table_key(benchmark))
+
+
+def n_macro_over_benchmark_cap_message(*, benchmark: str, n_macro: int) -> str | None:
+    """Return a human-readable error if ``n_macro`` exceeds the cap, else None."""
+    cap = max_n_macro_for_benchmark(benchmark)
+    if cap is None or n_macro <= cap:
+        return None
+    return (
+        f"n_macro={n_macro} exceeds the maximum for benchmark {benchmark!r} "
+        f"(effective macro cap is {cap}). Reduce n_macro or choose another benchmark."
+    )
+
+
+def _assert_n_macro_within_benchmark_cap(*, benchmark: str, n_macro: int) -> None:
+    msg = n_macro_over_benchmark_cap_message(benchmark=benchmark, n_macro=n_macro)
+    if msg is not None:
+        raise ValueError(msg)
 
 
 def _build_macro_placement_space(*, n_macro: int, n_grid_x: int, n_grid_y: int) -> SearchSpace:
@@ -120,6 +164,7 @@ def default_bboplace_definition(
     description_dir: Path | None = None,
 ) -> BBOPlaceDefinition:
     """Default BBOPlace task matching the published evaluator contract."""
+    _assert_n_macro_within_benchmark_cap(benchmark=benchmark, n_macro=n_macro)
     resolved_base = base_url or os.environ.get("BBOPLACE_BASE_URL", DEFAULT_BASE_URL)
     resolved_description_dir = description_dir or (TASK_DESCRIPTION_ROOT / key)
     space = _build_macro_placement_space(n_macro=n_macro, n_grid_x=n_grid_x, n_grid_y=n_grid_y)
@@ -212,6 +257,7 @@ class BBOPlaceTask(Task):
             "n_macro": self.definition.n_macro,
             "placer": self.definition.placer,
             "x": [row],
+            # "eval_gp_hpwl": True,
         }
         try:
             response = self._post_json(url, payload, self.config.http_timeout_seconds)
@@ -281,6 +327,12 @@ class BBOPlaceTask(Task):
         report = super().sanity_check()
         if self.definition.n_macro <= 0:
             report.add_error("invalid_n_macro", "n_macro must be positive.")
+        cap_msg = n_macro_over_benchmark_cap_message(
+            benchmark=self.definition.benchmark,
+            n_macro=int(self.definition.n_macro),
+        )
+        if cap_msg is not None:
+            report.add_error("n_macro_exceeds_benchmark_cap", cap_msg)
         expected_dim = int(self.definition.n_macro) * 2
         if self.definition.dimension != expected_dim:
             report.add_error(
@@ -321,10 +373,13 @@ BBOPLACE_DEFAULT_DEFINITION = default_bboplace_definition()
 __all__ = [
     "BBOPLACE_DEFAULT_DEFINITION",
     "BBOPLACE_TASK_KEY",
+    "BENCHMARK_MAX_N_MACRO",
     "BBOPlaceDefinition",
     "BBOPlaceTask",
     "BBOPlaceTaskConfig",
     "DEFAULT_BASE_URL",
     "default_bboplace_definition",
     "create_bboplace_task",
+    "max_n_macro_for_benchmark",
+    "n_macro_over_benchmark_cap_message",
 ]

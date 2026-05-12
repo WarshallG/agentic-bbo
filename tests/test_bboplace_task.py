@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -90,3 +91,48 @@ def test_bboplace_evaluate_nonfinite_hpwl_is_failed() -> None:
     assert not result.success
     assert result.status.value == "failed"
     assert result.error_type == "InvalidResponse"
+
+
+@pytest.mark.unit
+def test_bboplace_default_definition_rejects_n_macro_above_benchmark_cap() -> None:
+    from bbo.tasks.bboplace.task import default_bboplace_definition
+
+    default_bboplace_definition(benchmark="bigblue1", n_macro=560)
+
+    with pytest.raises(ValueError, match="560"):
+        default_bboplace_definition(benchmark="bigblue1", n_macro=561)
+
+
+@pytest.mark.unit
+def test_bboplace_max_n_macro_for_benchmark_normalizes_path() -> None:
+    from bbo.tasks.bboplace.task import max_n_macro_for_benchmark
+
+    assert max_n_macro_for_benchmark("ispd2005/bigblue1") == 560
+    assert max_n_macro_for_benchmark("UNKNOWN_BENCH") is None
+
+
+@pytest.mark.unit
+def test_bboplace_sanity_check_flags_n_macro_above_cap() -> None:
+    from bbo.tasks.bboplace.task import (
+        DEFAULT_N_GRID,
+        _build_macro_placement_space,
+        default_bboplace_definition,
+    )
+
+    base = default_bboplace_definition(benchmark="bigblue3", n_macro=1298)
+    space_over = _build_macro_placement_space(
+        n_macro=1299,
+        n_grid_x=DEFAULT_N_GRID,
+        n_grid_y=DEFAULT_N_GRID,
+    )
+    definition = replace(
+        base,
+        n_macro=1299,
+        search_space=space_over,
+        display_name="BBOPlace-Bench (bigblue3, 1299 macros)",
+    )
+    task = BBOPlaceTask(config=BBOPlaceTaskConfig(), definition=definition)
+    report = task.sanity_check()
+    assert not report.ok
+    assert any(issue.code == "n_macro_exceeds_benchmark_cap" for issue in report.errors)
+    assert "1298" in next(i.message for i in report.errors if i.code == "n_macro_exceeds_benchmark_cap")
